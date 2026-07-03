@@ -477,10 +477,12 @@ export default function Dashboard() {
                     const p1 = getControlPoint(currentDest, nextDest);
                     const p2 = HUB_COORDINATES[nextDest];
 
+                    const isTouchdownEngineCritical = engHealth < 0.30;
+
                     nextPlanes[id] = {
                       ...plane,
-                      status: "Ready",
-                      phase: "Landed",
+                      status: isTouchdownEngineCritical ? "Maintenance" : "Ready",
+                      phase: isTouchdownEngineCritical ? "Maintenance" : "Landed",
                       progress: 0,
                       altitude: 0,
                       speed: 0,
@@ -691,6 +693,7 @@ export default function Dashboard() {
   };
 
   const runFederatedRound = async () => {
+    if (isFederating) return;
     setIsFederating(true);
     try {
       const res = await fetch(`${BACKEND_URL}/api/v1/federated/aggregate`, {
@@ -1000,11 +1003,11 @@ export default function Dashboard() {
 
             if (nextProgress >= 100) {
               nextProgress = 0;
-              nextPhase = "Landed";
+              nextPhase = result.health_score < 0.30 ? "Maintenance" : "Landed";
               nextAltitude = 0;
               nextSpeed = 0;
               nextFuel = 100;
-              plane.status = "Ready";
+              plane.status = result.health_score < 0.30 ? "Maintenance" : "Ready";
             } else if (nextProgress < 15) {
               nextPhase = "Takeoff";
               nextAltitude = Math.round(nextProgress * 2000);
