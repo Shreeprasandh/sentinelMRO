@@ -223,12 +223,13 @@ class FederatedSimulationState:
         model_pt_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models", "tcn_model.pt"))
         torch.save(self.global_model.state_dict(), model_pt_path)
         
-        # 10. Re-quantize and export to ONNX
+        # 10. Re-quantize and export to ONNX in background worker thread to keep socket event loops responsive
         try:
             sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "models")))
             from export_onnx import export_and_quantize
-            export_and_quantize()
-            print("Successfully updated quantized ONNX model with federated weights.")
+            from anyio.to_thread import run_sync
+            await run_sync(export_and_quantize)
+            print("Successfully updated quantized ONNX model with federated weights in background thread.")
         except Exception as e:
             print(f"Error exporting/quantizing updated global model: {e}")
             
@@ -308,8 +309,9 @@ async def station_client_loop(station_id: str):
                         round_id = data.get("round_id")
                         global_weights = data.get("weights")
                         
-                        # Train local model partition
-                        new_weights, local_loss = train_local_station(station_id, global_weights)
+                        # Train local model partition in background worker thread to keep coordinator socket responsive
+                        from anyio.to_thread import run_sync
+                        new_weights, local_loss = await run_sync(train_local_station, station_id, global_weights)
                         
                         await ws.send(json.dumps({
                             "action": "update",

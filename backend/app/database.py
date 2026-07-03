@@ -4,7 +4,7 @@ import sqlite3
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "ledger.db"))
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=20.0)
     conn.row_factory = sqlite3.Row
     return conn
 
