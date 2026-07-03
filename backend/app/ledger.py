@@ -9,7 +9,7 @@ from database import get_db
 
 router = APIRouter(prefix="/api/v1/ledger", tags=["Ledger"])
 
-KEYS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "station_keys.json"))
+from hsm import hsm_enclave
 
 # Model definition for append payload
 class MaintenanceRecord(BaseModel):
@@ -26,40 +26,12 @@ class TamperPayload(BaseModel):
     technician_id: str
     health_snapshot: float
 
-# Helper: Initialize Ed25519 Keys for 3 MRO stations
-def load_or_generate_keys():
-    if os.path.exists(KEYS_PATH):
-        with open(KEYS_PATH, "r") as f:
-            return json.load(f)
-            
-    # Generate keys for 3 stations
-    keys = {}
-    for i in range(1, 4):
-        station_id = f"STATION_00{i}"
-        priv_key = ed25519.Ed25519PrivateKey.generate()
-        pub_key = priv_key.public_key()
-        
-        priv_bytes = priv_key.private_bytes_raw()
-        pub_bytes = pub_key.public_bytes_raw()
-        
-        keys[station_id] = {
-            "private": priv_bytes.hex(),
-            "public": pub_bytes.hex()
-        }
-        
-    with open(KEYS_PATH, "w") as f:
-        json.dump(keys, f, indent=4)
-    print(f"Generated cryptographic keys for stations at: {KEYS_PATH}")
-    return keys
-
-# Initialize keys at startup
-STATION_KEYS = load_or_generate_keys()
-
 def verify_signature(station_id: str, signature_hex: str, message: str) -> bool:
-    if station_id not in STATION_KEYS:
+    registry = hsm_enclave.get_public_registry()
+    if station_id not in registry:
         return False
     try:
-        pub_bytes = bytes.fromhex(STATION_KEYS[station_id]["public"])
+        pub_bytes = bytes.fromhex(registry[station_id]["public"])
         pub_key = ed25519.Ed25519PublicKey.from_public_bytes(pub_bytes)
         pub_key.verify(bytes.fromhex(signature_hex), message.encode('utf-8'))
         return True
@@ -164,8 +136,8 @@ def get_root_from_stored_hashes(conn):
 # Endpoints
 @router.get("/keys")
 def get_station_keys():
-    """Returns the simulated key pairs (public/private) for edge nodes."""
-    return STATION_KEYS
+    """Returns the simulated public key registry from the HSM Enclave."""
+    return hsm_enclave.get_public_registry()
 
 @router.get("/history")
 def get_ledger_history(response: Response, db = Depends(get_db)):
@@ -373,16 +345,15 @@ class SignPayload(BaseModel):
 @router.post("/sign")
 def sign_payload(payload: SignPayload):
     """
-    Helper route for simulation.
-    Generates a valid Ed25519 signature for a message using the station's private key.
+    Signs a message using the secure HSM Enclave simulator.
     """
-    if payload.station_id not in STATION_KEYS:
-        raise HTTPException(status_code=400, detail="Unknown station ID.")
     try:
-        priv_bytes = bytes.fromhex(STATION_KEYS[payload.station_id]["private"])
-        priv_key = ed25519.Ed25519PrivateKey.from_private_bytes(priv_bytes)
-        signature = priv_key.sign(payload.message.encode('utf-8'))
-        return {"signature": signature.hex()}
+        signature = hsm_enclave.secure_sign(payload.station_id, payload.message)
+        return {"signature": signature}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error signing payload: {e}")
 

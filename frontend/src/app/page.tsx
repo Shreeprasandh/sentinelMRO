@@ -15,7 +15,8 @@ import {
   Terminal,
   Settings,
   Lock,
-  FileText
+  FileText,
+  Network
 } from "lucide-react";
 import {
   LineChart,
@@ -135,6 +136,83 @@ export default function Dashboard() {
   const [isInferring, setIsInferring] = useState(false);
   const [isFederating, setIsFederating] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
+  
+  // WebSocket streaming states
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingRate, setStreamingRate] = useState(1000);
+
+  const handleRateChange = (newRate: number) => {
+    setStreamingRate(newRate);
+  };
+
+  useEffect(() => {
+    let ws: WebSocket | null = null;
+    if (isStreaming) {
+      const wsUrl = `${BACKEND_URL.replace(/^http/, "ws")}/api/v1/edge/ws/telemetry`;
+      ws = new WebSocket(wsUrl);
+      
+      ws.onopen = () => {
+        console.log("WebSocket telemetry connection established.");
+        ws?.send(JSON.stringify({ command: "set_rate", rate: streamingRate }));
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "telemetry" && data.engines) {
+            setEngines(prev => {
+              const nextEngines = { ...prev };
+              Object.keys(data.engines).forEach(id => {
+                const update = data.engines[id];
+                const engine = prev[id];
+                
+                const newHistory = [...engine.history];
+                if (newHistory.length >= 50) newHistory.shift();
+                newHistory.push({
+                  cycle: update.cycle,
+                  rul: update.predicted_rul,
+                  sensor_11: update.sensor_11,
+                  sensor_12: update.sensor_12
+                });
+                
+                nextEngines[id] = {
+                  ...engine,
+                  cycle: update.cycle,
+                  rul: update.predicted_rul,
+                  health: update.health_score,
+                  status: update.predicted_rul < 30 ? "Critical" : update.predicted_rul < 70 ? "Warning" : "Nominal",
+                  history: newHistory,
+                  attribution: update.attribution
+                };
+                
+                if (update.anomaly_flag && update.cycle !== engine.cycle) {
+                  triggerAutoLedgerAppend(id, update.health_score, update.predicted_rul);
+                }
+              });
+              return nextEngines;
+            });
+          }
+        } catch (err) {
+          console.error("Error parsing WebSocket message:", err);
+        }
+      };
+      
+      ws.onclose = () => {
+        console.log("WebSocket telemetry connection closed.");
+        setIsStreaming(false);
+      };
+      
+      ws.onerror = (e) => {
+        console.error("WebSocket telemetry error:", e);
+      };
+    }
+    
+    return () => {
+      if (ws) {
+        ws.close();
+      }
+    };
+  }, [isStreaming, streamingRate]);
   
   // Ledger states
   const [ledgerHistory, setLedgerHistory] = useState<LedgerRecord[]>([]);
@@ -465,8 +543,9 @@ export default function Dashboard() {
           rul: result.predicted_rul,
           health: result.health_score,
           status: result.predicted_rul < 30 ? "Critical" : result.predicted_rul < 70 ? "Warning" : "Nominal",
-          history: newHistory
-        };
+          history: newHistory,
+          attribution: result.attribution
+        } as any;
 
         setEngines(prev => ({
           ...prev,
@@ -766,14 +845,46 @@ export default function Dashboard() {
                     </h2>
                   </div>
                   
-                  <button
-                    onClick={() => streamNextCycle(activeEngine.id)}
-                    disabled={isInferring || !backendOnline}
-                    className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2 px-4 rounded-md text-xs tracking-wider transition-all active:scale-95 cursor-pointer"
-                  >
-                    <RefreshCw className={`h-3 w-3 ${isInferring ? "animate-spin" : ""}`} />
-                    <span>{isInferring ? "EVALUATING MODEL..." : "SIMULATE FLIGHT CYCLE"}</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* WebSocket Streaming Controls */}
+                    <div className="flex items-center space-x-2 bg-zinc-950 border border-zinc-900 px-3 py-1.5 rounded-md text-[11px] font-mono">
+                      <span className="text-zinc-500 uppercase">WS STREAM:</span>
+                      <button
+                        type="button"
+                        onClick={() => setIsStreaming(prev => !prev)}
+                        disabled={!backendOnline}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all duration-300 cursor-pointer ${
+                          isStreaming 
+                            ? "bg-red-500/20 text-red-400 border border-red-500/30" 
+                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                        }`}
+                      >
+                        {isStreaming ? "PAUSE" : "START"}
+                      </button>
+                      
+                      {isStreaming && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>}
+                      
+                      <select
+                        value={streamingRate}
+                        onChange={(e) => handleRateChange(Number(e.target.value))}
+                        disabled={!backendOnline}
+                        className="bg-zinc-900 border border-zinc-800 px-1 py-0.5 rounded text-zinc-300 outline-none text-[10px] cursor-pointer"
+                      >
+                        <option value={1000}>1.0s</option>
+                        <option value={500}>0.5s</option>
+                        <option value={200}>0.2s</option>
+                      </select>
+                    </div>
+
+                    <button
+                      onClick={() => streamNextCycle(activeEngine.id)}
+                      disabled={isInferring || isStreaming || !backendOnline}
+                      className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2 px-4 rounded-md text-xs tracking-wider transition-all active:scale-95 cursor-pointer"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${isInferring ? "animate-spin" : ""}`} />
+                      <span>{isInferring ? "EVALUATING MODEL..." : "SIMULATE FLIGHT CYCLE"}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* Status Banners */}
@@ -833,6 +944,131 @@ export default function Dashboard() {
                 </div>
 
               </div>
+
+              {/* Explainable AI Diagnostics panel */}
+              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
+                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                  <Cpu className="h-4 w-4 text-zinc-500" />
+                  <span>Explainable AI (XAI) Diagnostics: Sensor Attribution</span>
+                </h3>
+                <p className="text-[11px] text-zinc-450 leading-relaxed font-sans">
+                  Computed using <strong>Integrated Gradients</strong> on the edge TCN network. This panel identifies which sensors are the primary wear-contributors driving down the engine's Remaining Useful Life (RUL).
+                </p>
+
+                {activeEngine.attribution && activeEngine.attribution.length > 0 ? (
+                  <div className="space-y-4 pt-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
+                      {/* Top 7 sensors */}
+                      <div className="space-y-3">
+                        {activeEngine.attribution.slice(0, 7).map((item: any, idx: number) => {
+                          const isTop = idx < 3;
+                          const barColor = isTop ? "bg-red-500" : "bg-zinc-600";
+                          const textColor = isTop ? "text-red-400 font-bold" : "text-zinc-450";
+                          return (
+                            <div key={item.sensor} className="space-y-1">
+                              <div className="flex justify-between text-[11px]">
+                                <span className={textColor}>
+                                  {item.sensor.toUpperCase()} ({
+                                    item.sensor === "s11" ? "HPT coolant bleed" :
+                                    item.sensor === "s12" ? "LPT coolant bleed" :
+                                    item.sensor === "s15" ? "Bypass ratio" :
+                                    item.sensor === "s4" ? "LPT outlet temp" :
+                                    item.sensor === "s3" ? "HPC outlet temp" :
+                                    item.sensor === "s2" ? "LPC outlet temp" :
+                                    item.sensor === "s7" ? "Bypass ratio" :
+                                    item.sensor === "s8" ? "Fan speed" :
+                                    item.sensor === "s9" ? "Core speed" :
+                                    item.sensor === "s13" ? "Bleed enthalpy" :
+                                    item.sensor === "s14" ? "Demand factor" :
+                                    item.sensor === "s17" ? "Pressure ratio" :
+                                    item.sensor === "s20" ? "HPT speed" :
+                                    item.sensor === "s21" ? "LPT speed" : "Sensor"
+                                  })
+                                </span>
+                                <span className={textColor}>{item.percentage.toFixed(1)}%</span>
+                              </div>
+                              <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden border border-zinc-900">
+                                <div 
+                                  className={`h-full rounded-full transition-all duration-500 ${barColor}`} 
+                                  style={{ width: `${item.percentage}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Remaining 7 sensors */}
+                      <div className="space-y-3">
+                        {activeEngine.attribution.slice(7).map((item: any) => {
+                          return (
+                            <div key={item.sensor} className="space-y-1">
+                              <div className="flex justify-between text-[11px]">
+                                <span className="text-zinc-500">
+                                  {item.sensor.toUpperCase()} ({
+                                    item.sensor === "s11" ? "HPT coolant bleed" :
+                                    item.sensor === "s12" ? "LPT coolant bleed" :
+                                    item.sensor === "s15" ? "Bypass ratio" :
+                                    item.sensor === "s4" ? "LPT outlet temp" :
+                                    item.sensor === "s3" ? "HPC outlet temp" :
+                                    item.sensor === "s2" ? "LPC outlet temp" :
+                                    item.sensor === "s7" ? "Bypass ratio" :
+                                    item.sensor === "s8" ? "Fan speed" :
+                                    item.sensor === "s9" ? "Core speed" :
+                                    item.sensor === "s13" ? "Bleed enthalpy" :
+                                    item.sensor === "s14" ? "Demand factor" :
+                                    item.sensor === "s17" ? "Pressure ratio" :
+                                    item.sensor === "s20" ? "HPT speed" :
+                                    item.sensor === "s21" ? "LPT speed" : "Sensor"
+                                  })
+                                </span>
+                                <span className="text-zinc-400">{item.percentage.toFixed(1)}%</span>
+                              </div>
+                              <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden border border-zinc-900">
+                                <div 
+                                  className="h-full rounded-full bg-zinc-700/60 transition-all duration-500" 
+                                  style={{ width: `${item.percentage}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    
+                    {/* Synthesis Diagnosis */}
+                    <div className="p-3.5 bg-zinc-950 border border-zinc-900 rounded-lg text-[11px] font-mono text-zinc-450 flex items-start space-x-2">
+                      <Terminal className="h-4 w-4 text-zinc-500 shrink-0 mt-0.5" />
+                      <div>
+                        <strong>DIAGNOSTIC REPORT:</strong> Primary wear detected in {" "}
+                        <span className="text-red-400 font-bold">
+                          {activeEngine.attribution[0].sensor.toUpperCase()} ({
+                            activeEngine.attribution[0].sensor === "s11" ? "HPT coolant bleed" :
+                            activeEngine.attribution[0].sensor === "s12" ? "LPT coolant bleed" :
+                            activeEngine.attribution[0].sensor === "s15" ? "Bypass ratio" :
+                            activeEngine.attribution[0].sensor === "s4" ? "LPT outlet temp" :
+                            activeEngine.attribution[0].sensor === "s3" ? "HPC outlet temp" :
+                            activeEngine.attribution[0].sensor === "s2" ? "LPC outlet temp" :
+                            activeEngine.attribution[0].sensor === "s7" ? "Bypass ratio" :
+                            activeEngine.attribution[0].sensor === "s8" ? "Fan speed" :
+                            activeEngine.attribution[0].sensor === "s9" ? "Core speed" :
+                            activeEngine.attribution[0].sensor === "s13" ? "Bleed enthalpy" :
+                            activeEngine.attribution[0].sensor === "s14" ? "Demand factor" :
+                            activeEngine.attribution[0].sensor === "s17" ? "Pressure ratio" :
+                            activeEngine.attribution[0].sensor === "s20" ? "HPT speed" :
+                            activeEngine.attribution[0].sensor === "s21" ? "LPT speed" : "Sensor"
+                          })
+                        </span>{" "}
+                        (attribution score: {activeEngine.attribution[0].percentage.toFixed(1)}%). We recommend inspecting the component's internal thermodynamic seals and cooling channels.
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-zinc-950/20 border border-zinc-900 border-dashed rounded-lg p-8 text-center text-xs font-mono text-zinc-550">
+                    NO XAI DIAGNOSTICS LOADED. RUN A FLIGHT CYCLE SIMULATION OR ENABLE LIVE WEBSOCKET STREAMING TO TRIGGER ATTRIBUTION MAPS.
+                  </div>
+                )}
+              </div>
+
             </div>
 
           </div>
@@ -1088,6 +1324,248 @@ export default function Dashboard() {
 
               </div>
 
+            </div>
+
+            {/* MMR Tree Visualization Card */}
+            <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                  <Network className="h-4 w-4 text-zinc-500" />
+                  <span>Ledger Cryptographic DAG (Merkle Mountain Range)</span>
+                </h3>
+                <div className="flex space-x-4 text-[10px] font-mono">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
+                    <span className="text-zinc-400">Secure Node</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
+                    <span className="text-zinc-400">Tampered Path</span>
+                  </div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="h-2.5 w-2.5 border border-dashed border-zinc-500"></span>
+                    <span className="text-zinc-400">Peak Chaining</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[11px] text-zinc-450 leading-relaxed font-sans">
+                Below is the dynamic reconstruction of the Merkle Mountain Range (MMR) ledger tree. Leaf nodes represent physical MRO log entries. If the SQLite database is tampered with, the integrity check will identify the mutated leaves and trace the compromised validation path in red up to the root seal.
+              </p>
+
+              <div className="bg-zinc-950/40 border border-zinc-900 rounded-lg p-4 flex items-center justify-center min-h-[300px] overflow-x-auto">
+                {nodes.length === 0 ? (
+                  <div className="text-zinc-550 font-mono text-xs text-center py-12">
+                    <Database className="h-8 w-8 mx-auto mb-2 text-zinc-700 animate-bounce" />
+                    <span>NO AUDIT NODES IN LEDGER. COMMIT LOGS TO BUILD CRYPTOGRAPHIC DAG.</span>
+                  </div>
+                ) : (() => {
+                  const { nodes: mmrNodes, links: mmrLinks } = (() => {
+                    if (!nodes || nodes.length === 0) return { nodes: [], links: [] };
+                    
+                    const nodesMap: any = {};
+                    nodes.forEach((n: any) => {
+                      nodesMap[n.pos] = {
+                        ...n,
+                        children: [] as number[],
+                        parent: null as number | null,
+                        x: 0,
+                        y: 0
+                      };
+                    });
+                    
+                    const stack: any[] = [];
+                    const sortedNodes = [...nodes].sort((a: any, b: any) => a.pos - b.pos);
+                    
+                    sortedNodes.forEach((node: any) => {
+                      const nodeObj = nodesMap[node.pos];
+                      if (nodeObj.is_leaf) {
+                        stack.push(nodeObj);
+                      } else {
+                        if (stack.length >= 2) {
+                          const right = stack.pop();
+                          const left = stack.pop();
+                          nodeObj.children = [left.pos, right.pos];
+                          left.parent = nodeObj.pos;
+                          right.parent = nodeObj.pos;
+                        }
+                        stack.push(nodeObj);
+                      }
+                    });
+                    
+                    const peaks = [...stack];
+                    const leaves = Object.values(nodesMap).filter((n: any) => n.is_leaf).sort((a: any, b: any) => a.pos - b.pos);
+                    const width = 800;
+                    const height = 280;
+                    const paddingX = 50;
+                    const paddingY = 40;
+                    
+                    const leafSpacing = leaves.length > 1 ? (width - paddingX * 2) / (leaves.length - 1) : 0;
+                    leaves.forEach((leaf: any, idx: number) => {
+                      leaf.x = paddingX + idx * leafSpacing;
+                      leaf.y = height - paddingY;
+                    });
+                    
+                    const internalNodes = Object.values(nodesMap).filter((n: any) => !n.is_leaf).sort((a: any, b: any) => a.height - b.height);
+                    internalNodes.forEach((node: any) => {
+                      if (node.children && node.children.length === 2) {
+                        const left = nodesMap[node.children[0]];
+                        const right = nodesMap[node.children[1]];
+                        node.x = (left.x + right.x) / 2;
+                        node.y = height - paddingY - node.height * 55;
+                      }
+                    });
+                    
+                    const tamperedPos = new Set<string | number>();
+                    const leafIdxToPos: Record<number, number> = {};
+                    leaves.forEach((leaf: any, idx: number) => {
+                      const leafIdx = idx + 1;
+                      leaf.leaf_index = leafIdx;
+                      leafIdxToPos[leafIdx] = leaf.pos;
+                    });
+                    
+                    if (verificationResult.verified === false && verificationResult.tampered_indices) {
+                      verificationResult.tampered_indices.forEach((idx: number) => {
+                        const pos = leafIdxToPos[idx];
+                        if (pos) {
+                          tamperedPos.add(pos);
+                        }
+                      });
+                      
+                      const sortedByHeight = Object.values(nodesMap).sort((a: any, b: any) => a.height - b.height);
+                      sortedByHeight.forEach((node: any) => {
+                        if (node.children && node.children.some((cPos: number) => tamperedPos.has(cPos))) {
+                          tamperedPos.add(node.pos);
+                        }
+                      });
+                      
+                      if (peaks.some((p: any) => tamperedPos.has(p.pos))) {
+                        tamperedPos.add("ROOT");
+                      }
+                    }
+                    
+                    const links: any[] = [];
+                    Object.values(nodesMap).forEach((node: any) => {
+                      if (node.children) {
+                        node.children.forEach((cPos: number) => {
+                          const child = nodesMap[cPos];
+                          const isTamperedLink = tamperedPos.has(node.pos) && tamperedPos.has(child.pos);
+                          links.push({
+                            id: `link-${node.pos}-${child.pos}`,
+                            source: { x: node.x, y: node.y },
+                            target: { x: child.x, y: child.y },
+                            isTampered: isTamperedLink
+                          });
+                        });
+                      }
+                    });
+                    
+                    let rootNodeObj = null;
+                    if (peaks.length > 1) {
+                      rootNodeObj = {
+                        pos: "ROOT",
+                        hash: rootHash,
+                        is_root: true,
+                        x: width / 2,
+                        y: paddingY,
+                        height: Math.max(...peaks.map((p: any) => p.height)) + 1
+                      };
+                      
+                      peaks.forEach((peak: any) => {
+                        const isTamperedLink = tamperedPos.has("ROOT") && tamperedPos.has(peak.pos);
+                        links.push({
+                          id: `link-ROOT-${peak.pos}`,
+                          source: { x: rootNodeObj.x, y: rootNodeObj.y },
+                          target: { x: peak.x, y: peak.y },
+                          isPeakLink: true,
+                          isTampered: isTamperedLink
+                        });
+                      });
+                    } else if (peaks.length === 1) {
+                      peaks[0].is_root = true;
+                    }
+                    
+                    const finalNodes = Object.values(nodesMap);
+                    if (rootNodeObj) {
+                      finalNodes.push(rootNodeObj);
+                    }
+                    
+                    return {
+                      nodes: finalNodes.map((n: any) => ({
+                        ...n,
+                        isTampered: tamperedPos.has(n.pos)
+                      })),
+                      links
+                    };
+                  })();
+                  
+                  return (
+                    <svg viewBox="0 0 800 280" className="w-full max-w-[800px] h-auto select-none overflow-visible">
+                      {mmrLinks.map((link: any) => (
+                        <line
+                          key={link.id}
+                          x1={link.source.x}
+                          y1={link.source.y}
+                          x2={link.target.x}
+                          y2={link.target.y}
+                          className={`transition-all duration-500 ${
+                            link.isTampered
+                              ? "stroke-red-500/80 stroke-[2px]"
+                              : link.isPeakLink
+                              ? "stroke-zinc-600/50 stroke-[1.5px]"
+                              : "stroke-zinc-700/60 stroke-[1.5px]"
+                          }`}
+                          strokeDasharray={link.isPeakLink ? "4 4" : undefined}
+                        />
+                      ))}
+                      
+                      {mmrNodes.map((node: any) => {
+                        const radius = node.pos === "ROOT" ? 12 : node.is_leaf ? 8 : 10;
+                        const fillClass = node.isTampered
+                          ? "fill-red-950/80 stroke-red-500"
+                          : node.pos === "ROOT"
+                          ? "fill-cyan-950 stroke-cyan-400"
+                          : node.is_leaf
+                          ? "fill-emerald-950/80 stroke-emerald-500"
+                          : "fill-zinc-900 stroke-zinc-500";
+                        
+                        return (
+                          <g key={node.pos} className="group cursor-pointer">
+                            <circle
+                              cx={node.x}
+                              cy={node.y}
+                              r={radius}
+                              className={`transition-all duration-500 stroke-[2px] ${fillClass} hover:stroke-[3px]`}
+                            />
+                            {node.isTampered && (
+                              <circle
+                                cx={node.x}
+                                cy={node.y}
+                                r={radius + 4}
+                                className="fill-none stroke-red-500/35 stroke-[1px] animate-ping"
+                              />
+                            )}
+                            
+                            <text
+                              x={node.x}
+                              y={node.y + (node.is_leaf ? 18 : -16)}
+                              textAnchor="middle"
+                              className={`text-[9px] font-mono font-bold ${
+                                node.isTampered ? "fill-red-400" : "fill-zinc-400"
+                              }`}
+                            >
+                              {node.pos === "ROOT" ? "MMR ROOT" : node.is_leaf ? `Leaf #${node.leaf_index}` : `Pos ${node.pos}`}
+                            </text>
+                            
+                            <title>
+                              {`Node Position: ${node.pos}\nHeight: ${node.height}\nHash: ${node.hash || 'N/A'}\nStatus: ${node.isTampered ? 'COMPROMISED' : 'SECURE'}`}
+                            </title>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Audit log table */}
