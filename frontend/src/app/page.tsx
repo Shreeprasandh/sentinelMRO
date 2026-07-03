@@ -448,7 +448,7 @@ export default function Dashboard() {
                 }
                 const isEngineCritical = engHealth < 0.30;
 
-                if (isEngineCritical) {
+                if (isEngineCritical && plane.status !== "Airborne") {
                   // Ground the aircraft and place it under Maintenance
                   nextPlanes[id] = {
                     ...plane,
@@ -980,7 +980,7 @@ export default function Dashboard() {
             const plane = nextPlanes[targetPlaneId];
             const isEngineCritical = result.health_score < 0.30;
 
-            if (isEngineCritical) {
+            if (isEngineCritical && plane.status !== "Airborne") {
               nextPlanes[targetPlaneId] = {
                 ...plane,
                 status: "Maintenance",
