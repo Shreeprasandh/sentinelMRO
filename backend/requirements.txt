@@ -1,0 +1,10 @@
+numpy
+pandas
+scikit-learn
+torch
+onnx
+onnxruntime
+fastapi
+uvicorn
+cryptography
+pydantic
