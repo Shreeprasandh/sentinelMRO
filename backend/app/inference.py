@@ -272,6 +272,8 @@ async def websocket_telemetry(websocket: WebSocket):
                     state["rate_ms"] = max(100, int(cmd.get("rate", 1000)))
                 elif action == "reset":
                     state["engine_cycles"] = {"ENG-001": 30, "ENG-002": 30, "ENG-003": 30}
+                elif action == "set_airborne_engines":
+                    state["airborne_engines"] = cmd.get("engines", [])
         except Exception:
             pass
             
@@ -282,7 +284,11 @@ async def websocket_telemetry(websocket: WebSocket):
             if not state["paused"]:
                 updates = {}
                 for engine_id in ["ENG-001", "ENG-002", "ENG-003"]:
-                    state["engine_cycles"][engine_id] += 1
+                    # Only increment engine cycles if the engine is currently airborne
+                    is_airborne = engine_id in state.get("airborne_engines", [])
+                    if is_airborne:
+                        state["engine_cycles"][engine_id] += 1
+                        
                     cycle = state["engine_cycles"][engine_id]
                     matrix, s11, s12 = simulate_telemetry_matrix(engine_id, cycle)
                     

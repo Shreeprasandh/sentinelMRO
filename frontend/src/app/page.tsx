@@ -364,6 +364,10 @@ export default function Dashboard() {
   const [selectedPlaneId, setSelectedPlaneId] = useState<string | null>(null);
   const [hoveredPlaneId, setHoveredPlaneId] = useState<string | null>(null);
   const [planes, setPlanes] = useState<Record<string, PlaneData>>(INITIAL_PLANES);
+  const planesRef = React.useRef(planes);
+  React.useEffect(() => {
+    planesRef.current = planes;
+  }, [planes]);
   
   // Hangar credentials login
   const [hangarAccessKey, setHangarAccessKey] = useState("");
@@ -402,6 +406,17 @@ export default function Dashboard() {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "telemetry" && data.engines) {
+            // Send back the current airborne engines list to backend uvicorn to age only airborne engines!
+            const airborne = Object.keys(planesRef.current)
+              .filter(id => planesRef.current[id].status === "Airborne")
+              .flatMap(id => planesRef.current[id].engines);
+              
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                command: "set_airborne_engines",
+                engines: airborne
+              }));
+            }
             setEngines(prev => {
               const nextEngines = { ...prev };
               Object.keys(data.engines).forEach(id => {
@@ -998,11 +1013,18 @@ export default function Dashboard() {
             if (plane.status !== "Airborne") {
               plane.status = "Airborne";
             }
-            let nextProgress = plane.progress + 5;
+            const origCoord = HUB_COORDINATES[plane.origin];
+            const destCoord = HUB_COORDINATES[plane.destination];
+            const distance = (origCoord && destCoord) 
+              ? Math.sqrt(Math.pow(destCoord.x - origCoord.x, 2) + Math.pow(destCoord.y - origCoord.y, 2))
+              : 220;
+            const flightDuration = Math.round(distance / 2.2) || 100;
+
+            let nextProgress = plane.progress + (100 / flightDuration) * 5.0; // scale manual step to finish in similar clicks
             let nextPhase = plane.phase;
             let nextAltitude = plane.altitude;
             let nextSpeed = plane.speed;
-            let nextFuel = Math.max(5, plane.fuel - 1.5);
+            let nextFuel = Math.max(5, plane.fuel - (95 / flightDuration) * 5.0);
 
             if (nextProgress >= 100) {
               nextProgress = 0;
