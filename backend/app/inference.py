@@ -40,6 +40,7 @@ def load_pytorch_model():
 
 class InferencePayload(BaseModel):
     sensor_matrix: list[list[float]]
+    explain: bool = False
 
 class AttributionItem(BaseModel):
     sensor: str
@@ -185,7 +186,7 @@ def get_edge_inference(payload: InferencePayload):
         )
         
     health_score, rul_int, anomaly, is_mock = inference_service.preprocess_and_predict(payload.sensor_matrix)
-    attribution = inference_service.compute_attribution(payload.sensor_matrix)
+    attribution = inference_service.compute_attribution(payload.sensor_matrix) if payload.explain else []
     
     return {
         "health_score": health_score,

@@ -522,7 +522,7 @@ export default function Dashboard() {
       const res = await fetch(`${BACKEND_URL}/api/v1/edge/inference`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sensor_matrix: simulatedMatrix })
+        body: JSON.stringify({ sensor_matrix: simulatedMatrix, explain: true })
       });
       
       if (res.ok) {
