@@ -274,6 +274,10 @@ async def websocket_telemetry(websocket: WebSocket):
                     state["engine_cycles"] = {"ENG-001": 30, "ENG-002": 30, "ENG-003": 30}
                 elif action == "set_airborne_engines":
                     state["airborne_engines"] = cmd.get("engines", [])
+                elif action == "reset_engine":
+                    eng_id = cmd.get("engine_id")
+                    if eng_id in state["engine_cycles"]:
+                        state["engine_cycles"][eng_id] = 30
         except Exception:
             pass
             

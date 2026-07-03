@@ -210,14 +210,15 @@ export interface PlaneData {
   originName: string;
   destination: string;
   destinationName: string;
-  status: "Airborne" | "Ready" | "Maintenance";
-  phase: "Pre-Flight" | "Takeoff" | "Cruise" | "Descent" | "Landed" | "Maintenance";
+  status: "Airborne" | "Ready" | "Maintenance" | "Grounded";
+  phase: "Pre-Flight" | "Takeoff" | "Cruise" | "Descent" | "Landed" | "Maintenance" | "Landing";
   progress: number;
   speed: number;
   altitude: number;
   engines: string[];
   fuel: number;
   routeCoordinates: { x: number; y: number }[];
+  readyDurationLimit?: number;
 }
 
 export const HUB_COORDINATES: Record<string, { x: number; y: number; name: string }> = {
@@ -368,6 +369,7 @@ export default function Dashboard() {
   React.useEffect(() => {
     planesRef.current = planes;
   }, [planes]);
+  const wsRef = React.useRef<WebSocket | null>(null);
   
   // Hangar credentials login
   const [hangarAccessKey, setHangarAccessKey] = useState("");
@@ -396,6 +398,7 @@ export default function Dashboard() {
     if (isStreaming) {
       const wsUrl = `${BACKEND_URL.replace(/^http/, "ws")}/api/v1/edge/ws/telemetry`;
       ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
       
       ws.onopen = () => {
         console.log("WebSocket telemetry connection established.");
@@ -797,7 +800,7 @@ export default function Dashboard() {
     const timestamp = new Date().toISOString();
     const healthNum = parseFloat(formHealth);
     
-    const message = `${timestamp}|${formEngine}|${formAction}|${formTech}|${healthNum}`;
+    const message = `${timestamp}|${formEngine}|${formAction}|${formTech}|${healthNum.toFixed(1)}`;
     
     try {
       const signRes = await fetch(`${BACKEND_URL}/api/v1/ledger/sign`, {
@@ -836,6 +839,11 @@ export default function Dashboard() {
         setFormSuccessMessage(`Record committed at Leaf Index #${data.leaf_index}. Root Hash updated.`);
         fetchLedgerHistory();
 
+        // Reset backend engine cycle counter over WebSocket to ensure synchronization
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ command: "reset_engine", engine_id: formEngine }));
+        }
+
         // --- CLOSED LOOP SIMULATION: UPDATE ENGINE STATE IN UI ---
         // V3: Reset corresponding aircraft status and release maintenance interlock on overhaul
         setPlanes(prev => {
@@ -843,6 +851,8 @@ export default function Dashboard() {
           const targetPlaneId = Object.keys(nextPlanes).find(key => nextPlanes[key].engines.includes(formEngine));
           if (targetPlaneId) {
             const plane = nextPlanes[targetPlaneId];
+            // Skip remaining maintenance time and add it to the ready pre-flight time
+            const skippedTime = Math.max(0, 15 - plane.progress);
             nextPlanes[targetPlaneId] = {
               ...plane,
               status: "Ready",
@@ -850,7 +860,8 @@ export default function Dashboard() {
               progress: 0,
               altitude: 0,
               speed: 0,
-              fuel: 100
+              fuel: 5, // Starts refueling at gate
+              readyDurationLimit: 30 + skippedTime
             };
           }
           return nextPlanes;
@@ -1077,7 +1088,7 @@ export default function Dashboard() {
     const tech = "AUTO-MRO-BOT";
     const station = "STATION_001";
     const health = 1.0;
-    const message = `${timestamp}|${engineId}|${action}|${tech}|${health}`;
+    const message = `${timestamp}|${engineId}|${action}|${tech}|${health.toFixed(1)}`;
 
     try {
       const signRes = await fetch(`${BACKEND_URL}/api/v1/ledger/sign`, {
@@ -1106,6 +1117,12 @@ export default function Dashboard() {
 
         if (appendRes.ok) {
           fetchLedgerHistory();
+
+          // Reset backend engine cycle counter over WebSocket to ensure synchronization
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ command: "reset_engine", engine_id: engineId }));
+          }
+
           // Update engine health state locally
           setEngines(prev => {
             const target = prev[engineId];
@@ -1134,7 +1151,8 @@ export default function Dashboard() {
                 progress: 0,
                 altitude: 0,
                 speed: 0,
-                fuel: 100
+                fuel: 5, // Starts refueling at gate
+                readyDurationLimit: 30 // Full auto-maintenance completes, so ready limit remains 30s
               };
             }
             return nextPlanes;
@@ -1151,7 +1169,7 @@ export default function Dashboard() {
     const action = `Auto Inspection Flag (RUL: ${rul})`;
     const tech = "SYSTEM-DIAGNOSTIC";
     const station = "STATION_002";
-    const message = `${timestamp}|${engineId}|${action}|${tech}|${health}`;
+    const message = `${timestamp}|${engineId}|${action}|${tech}|${health.toFixed(1)}`;
 
     try {
       const signRes = await fetch(`${BACKEND_URL}/api/v1/ledger/sign`, {
