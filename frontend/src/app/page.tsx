@@ -44,6 +44,7 @@ interface EngineData {
     sensor_11: number; // Core speed trend
     sensor_12: number; // Bypass ratio trend
   }[];
+  attribution?: { sensor: string; percentage: number }[];
 }
 
 interface LedgerRecord {
@@ -66,6 +67,57 @@ interface FederatedRound {
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
+const MOCK_ATTRIBUTION_1 = [
+  { sensor: "s11", percentage: 14.5 },
+  { sensor: "s12", percentage: 12.2 },
+  { sensor: "s15", percentage: 10.8 },
+  { sensor: "s4", percentage: 9.5 },
+  { sensor: "s3", percentage: 8.8 },
+  { sensor: "s2", percentage: 7.5 },
+  { sensor: "s7", percentage: 6.8 },
+  { sensor: "s8", percentage: 6.2 },
+  { sensor: "s9", percentage: 5.8 },
+  { sensor: "s13", percentage: 5.5 },
+  { sensor: "s14", percentage: 5.2 },
+  { sensor: "s17", percentage: 4.2 },
+  { sensor: "s20", percentage: 1.8 },
+  { sensor: "s21", percentage: 1.2 }
+];
+
+const MOCK_ATTRIBUTION_2 = [
+  { sensor: "s3", percentage: 22.1 },
+  { sensor: "s11", percentage: 18.4 },
+  { sensor: "s4", percentage: 12.5 },
+  { sensor: "s12", percentage: 9.2 },
+  { sensor: "s15", percentage: 8.8 },
+  { sensor: "s2", percentage: 6.5 },
+  { sensor: "s7", percentage: 5.8 },
+  { sensor: "s8", percentage: 4.2 },
+  { sensor: "s9", percentage: 3.8 },
+  { sensor: "s13", percentage: 3.5 },
+  { sensor: "s14", percentage: 2.2 },
+  { sensor: "s17", percentage: 1.8 },
+  { sensor: "s20", percentage: 0.8 },
+  { sensor: "s21", percentage: 0.4 }
+];
+
+const MOCK_ATTRIBUTION_3 = [
+  { sensor: "s12", percentage: 28.4 },
+  { sensor: "s11", percentage: 24.2 },
+  { sensor: "s15", percentage: 14.8 },
+  { sensor: "s4", percentage: 10.5 },
+  { sensor: "s3", percentage: 6.8 },
+  { sensor: "s2", percentage: 4.5 },
+  { sensor: "s7", percentage: 3.8 },
+  { sensor: "s8", percentage: 2.2 },
+  { sensor: "s9", percentage: 1.8 },
+  { sensor: "s13", percentage: 1.5 },
+  { sensor: "s14", percentage: 0.9 },
+  { sensor: "s17", percentage: 0.4 },
+  { sensor: "s20", percentage: 0.2 },
+  { sensor: "s21", percentage: 0.1 }
+];
+
 // Pre-seeded local engine simulators with deterministic formulas to avoid SSR hydration mismatches
 const INITIAL_ENGINES: Record<string, EngineData> = {
   "ENG-001": {
@@ -83,7 +135,8 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
         sensor_11: 1585.0 + c * 0.08 * 0.8 + ((i * 3) % 5) * 0.2,
         sensor_12: 8.40 + c * 0.0007 * 0.8 + ((i * 7) % 6) * 0.0005,
       };
-    })
+    }),
+    attribution: MOCK_ATTRIBUTION_1
   },
   "ENG-002": {
     id: "ENG-002",
@@ -100,7 +153,8 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
         sensor_11: 1585.0 + c * 0.08 * 1.1 + ((i * 4) % 6) * 0.2,
         sensor_12: 8.40 + c * 0.0007 * 1.1 + ((i * 8) % 5) * 0.0005,
       };
-    })
+    }),
+    attribution: MOCK_ATTRIBUTION_2
   },
   "ENG-003": {
     id: "ENG-003",
@@ -117,8 +171,26 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
         sensor_11: 1585.0 + c * 0.08 * 1.6 + ((i * 5) % 7) * 0.2,
         sensor_12: 8.40 + c * 0.0007 * 1.6 + ((i * 9) % 6) * 0.0005,
       };
-    })
+    }),
+    attribution: MOCK_ATTRIBUTION_3
   }
+};
+
+const SENSOR_METADATA: Record<string, { label: string; desc: string }> = {
+  s2: { label: "LPC Outlet Temp", desc: "Temperature of the airflow at the exit of the Low Pressure Compressor." },
+  s3: { label: "HPC Outlet Temp", desc: "High Pressure Compressor exit temperature, indicating thermal stress." },
+  s4: { label: "LPT Outlet Temp", desc: "Low Pressure Turbine exit temperature, reflecting exhaust gas heat." },
+  s7: { label: "Bypass Ratio", desc: "Ratio of bypass duct flow to core flow; changes affect thrust efficiency." },
+  s8: { label: "Fan Speed", desc: "Rotational velocity of the intake bypass fan blades." },
+  s9: { label: "Core Speed", desc: "Rotational velocity of the high-pressure spool/shaft." },
+  s11: { label: "HPT Coolant Bleed", desc: "High Pressure Turbine coolant bleed flow temp; critical wear factor." },
+  s12: { label: "LPT Coolant Bleed", desc: "Low Pressure Turbine coolant bleed flow temp; indicates seal wear." },
+  s13: { label: "Bleed Enthalpy", desc: "Thermodynamic energy state of the bleed air system." },
+  s14: { label: "Demand Factor", desc: "Engine performance demand output compared to designed limits." },
+  s15: { label: "Bypass Ratio", desc: "Physical bypass ratio flow; deviations point to bypass duct drag." },
+  s17: { label: "Pressure Ratio", desc: "Overall engine pressure ratio; changes reflect structural leaks." },
+  s20: { label: "HPT Speed", desc: "Rotational velocity of the High Pressure Turbine." },
+  s21: { label: "LPT Speed", desc: "Rotational velocity of the Low Pressure Turbine." }
 };
 
 export default function Dashboard() {
@@ -140,6 +212,7 @@ export default function Dashboard() {
   // WebSocket streaming states
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingRate, setStreamingRate] = useState(1000);
+  const [hoveredSensor, setHoveredSensor] = useState<string | null>(null);
 
   const handleRateChange = (newRate: number) => {
     setStreamingRate(newRate);
@@ -203,7 +276,7 @@ export default function Dashboard() {
       };
       
       ws.onerror = (e) => {
-        console.error("WebSocket telemetry error:", e);
+        console.warn("WebSocket telemetry error:", e);
       };
     }
     
@@ -223,6 +296,7 @@ export default function Dashboard() {
     message: string;
     computed_root: string;
     stored_root: string;
+    tampered_indices?: number[];
   }>({ verified: null, message: "", computed_root: "", stored_root: "" });
 
   // Federated learning states
@@ -252,21 +326,29 @@ export default function Dashboard() {
 
   useEffect(() => {
     setMounted(true);
-    checkBackendHealth();
-    fetchLedgerHistory();
-    fetchFederatedHistory();
+    const init = async () => {
+      const online = await checkBackendHealth();
+      if (online) {
+        fetchLedgerHistory();
+        fetchFederatedHistory();
+      }
+    };
+    init();
   }, []);
 
-  const checkBackendHealth = async () => {
+  const checkBackendHealth = async (): Promise<boolean> => {
     try {
       const res = await fetch(`${BACKEND_URL}/`);
       if (res.ok) {
         setBackendOnline(true);
+        return true;
       } else {
         setBackendOnline(false);
+        return false;
       }
     } catch {
       setBackendOnline(false);
+      return false;
     }
   };
 
@@ -280,7 +362,7 @@ export default function Dashboard() {
         setNodes(data.nodes || []);
       }
     } catch (e) {
-      console.error("Failed to load ledger history:", e);
+      console.warn("Failed to load ledger history:", e);
     }
   };
 
@@ -292,7 +374,7 @@ export default function Dashboard() {
         setFederatedHistory(data || []);
       }
     } catch (e) {
-      console.error("Failed to load federated history:", e);
+      console.warn("Failed to load federated history:", e);
     }
   };
 
@@ -326,7 +408,8 @@ export default function Dashboard() {
           verified: data.verified,
           message: data.message,
           computed_root: data.computed_root,
-          stored_root: data.stored_root
+          stored_root: data.stored_root,
+          tampered_indices: data.tampered_indices
         });
       }
     } catch (e) {
@@ -557,7 +640,7 @@ export default function Dashboard() {
         }
       }
     } catch (e) {
-      console.error("Inference request failed:", e);
+      console.warn("Inference request failed:", e);
     } finally {
       setIsInferring(false);
     }
@@ -597,7 +680,7 @@ export default function Dashboard() {
         fetchLedgerHistory();
       }
     } catch (e) {
-      console.error("Auto ledger append failed:", e);
+      console.warn("Auto ledger append failed:", e);
     }
   };
 
@@ -829,6 +912,164 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
+
+              {/* Engine Schematic & Sensor Mapping */}
+              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                    <Network className="h-4 w-4 text-zinc-500" />
+                    <span>Engine Sensor Node Map</span>
+                  </h3>
+                  {hoveredSensor && (
+                    <span className="text-[10px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-zinc-400 uppercase animate-fade-in">
+                      Active: {hoveredSensor}
+                    </span>
+                  )}
+                </div>
+
+                <div className="bg-zinc-950/60 border border-zinc-900/80 rounded-lg p-2 flex items-center justify-center relative">
+                  <svg viewBox="0 0 400 160" className="w-full h-auto text-zinc-700 select-none">
+                    {/* Stylized Engine Outline */}
+                    <path 
+                      d="M 40,40 L 120,40 L 140,55 L 290,55 L 310,40 L 350,40 L 340,80 L 350,120 L 310,120 L 290,105 L 140,105 L 120,120 L 40,120 Z" 
+                      fill="none" 
+                      stroke="#27272a" 
+                      strokeWidth="2" 
+                    />
+                    <path 
+                      d="M 50,45 L 120,45 L 138,58 L 290,58 L 308,45 L 340,45 M 50,115 L 120,115 L 138,102 L 290,102 L 308,115 L 340,115" 
+                      fill="none" 
+                      stroke="#18181b" 
+                      strokeWidth="1" 
+                    />
+                    
+                    {/* Compressor / Fan blades spinner */}
+                    <path d="M 45,80 Q 75,50 85,80 Q 75,110 45,80 Z" fill="#27272a" fillOpacity="0.2" stroke="#3f3f46" strokeWidth="1.5" />
+                    
+                    {/* Rotor Shaft */}
+                    <line x1="85" y1="80" x2="310" y2="80" stroke="#3f3f46" strokeWidth="2.5" strokeDasharray="6,4" strokeOpacity="0.4" />
+                    
+                    {/* Compression stages */}
+                    <line x1="95" y1="46" x2="95" y2="114" stroke="#27272a" strokeWidth="1.5" />
+                    <line x1="110" y1="46" x2="110" y2="114" stroke="#27272a" strokeWidth="1.5" />
+                    <line x1="125" y1="50" x2="125" y2="110" stroke="#27272a" strokeWidth="1.5" />
+                    
+                    {/* Combustor block */}
+                    <rect x="155" y="60" width="55" height="40" rx="3" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeOpacity="0.2" />
+                    <circle cx="182" cy="80" r="10" fill="#ef4444" fillOpacity="0.05" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,2" strokeOpacity="0.3" />
+                    
+                    {/* Turbine stages */}
+                    <line x1="235" y1="56" x2="235" y2="104" stroke="#27272a" strokeWidth="1.5" />
+                    <line x1="255" y1="56" x2="255" y2="104" stroke="#27272a" strokeWidth="1.5" />
+                    <line x1="275" y1="56" x2="275" y2="104" stroke="#27272a" strokeWidth="1.5" />
+                    
+                    {/* Exhaust nozzle cone */}
+                    <path d="M 290,80 L 320,68 L 320,92 Z" fill="#27272a" fillOpacity="0.4" stroke="#3f3f46" strokeWidth="1.5" />
+                    
+                    {/* Sensor Dots */}
+                    {[
+                      { id: "s8", label: "s8", x: 55, y: 50 },
+                      { id: "s2", label: "s2", x: 75, y: 110 },
+                      { id: "s3", label: "s3", x: 110, y: 52 },
+                      { id: "s9", label: "s9", x: 125, y: 108 },
+                      { id: "s15", label: "s15", x: 205, y: 35 },
+                      { id: "s4", label: "s4", x: 245, y: 110 },
+                      { id: "s11", label: "s11", x: 270, y: 52 },
+                      { id: "s12", label: "s12", x: 295, y: 110 }
+                    ].map((sensor) => {
+                      const isHovered = hoveredSensor === sensor.id;
+                      const wearRank = activeEngine.attribution?.findIndex(a => a.sensor === sensor.id) ?? -1;
+                      const isTopWear = wearRank === 0; // Highest attribution wear sensor
+                      
+                      let dotColor = "fill-zinc-700 stroke-zinc-950";
+                      let pulseClass = "";
+                      
+                      if (isTopWear) {
+                        dotColor = "fill-red-500 stroke-red-100";
+                        pulseClass = "animate-pulse";
+                      } else if (isHovered) {
+                        dotColor = "fill-zinc-100 stroke-white";
+                      } else if (wearRank !== -1 && wearRank < 3) {
+                        dotColor = "fill-amber-500 stroke-amber-100";
+                      }
+
+                      return (
+                        <g 
+                          key={sensor.id}
+                          className="cursor-pointer"
+                          onMouseEnter={() => setHoveredSensor(sensor.id)}
+                          onMouseLeave={() => setHoveredSensor(null)}
+                        >
+                          {/* Pulsing ring for top wear or hover */}
+                          {(isTopWear || isHovered) && (
+                            <circle 
+                              cx={sensor.x} 
+                              cy={sensor.y} 
+                              r="9" 
+                              className={`${pulseClass} ${isTopWear ? "fill-red-500/20" : "fill-zinc-100/20"}`} 
+                            />
+                          )}
+                          <circle 
+                            cx={sensor.x} 
+                            cy={sensor.y} 
+                            r="5.5" 
+                            className={`${dotColor} transition-all duration-350`} 
+                            strokeWidth="1.5"
+                          />
+                          {/* Label */}
+                          <text 
+                            x={sensor.x} 
+                            y={sensor.y - 9} 
+                            textAnchor="middle" 
+                            className={`font-mono text-[9px] select-none pointer-events-none transition-colors ${
+                              isHovered ? "fill-zinc-100 font-bold" : isTopWear ? "fill-red-400 font-bold" : "fill-zinc-500"
+                            }`}
+                          >
+                            {sensor.label.toUpperCase()}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+
+                {/* Sensor Details Area */}
+                <div className="bg-zinc-950/40 border border-zinc-900/60 p-3.5 rounded-lg text-[11px] font-mono min-h-[75px] flex flex-col justify-center">
+                  {hoveredSensor ? (
+                    <div className="space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-zinc-250 font-bold">{hoveredSensor.toUpperCase()} - {SENSOR_METADATA[hoveredSensor]?.label}</span>
+                        <span className="text-zinc-400">
+                          WEAR: {activeEngine.attribution?.find(a => a.sensor === hoveredSensor)?.percentage.toFixed(1) ?? "0.0"}%
+                        </span>
+                      </div>
+                      <p className="text-zinc-500 leading-normal font-sans text-[11px]">
+                        {SENSOR_METADATA[hoveredSensor]?.desc}
+                      </p>
+                    </div>
+                  ) : activeEngine.attribution && activeEngine.attribution.length > 0 ? (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-red-450 text-[10px]">
+                        <span className="font-bold uppercase tracking-wider flex items-center space-x-1">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          <span>Primary Hotspot: {activeEngine.attribution[0].sensor.toUpperCase()}</span>
+                        </span>
+                        <span className="font-bold font-mono">
+                          {activeEngine.attribution[0].percentage.toFixed(1)}% ATTRIBUTION
+                        </span>
+                      </div>
+                      <p className="text-zinc-500 leading-normal font-sans text-[11px]">
+                        Component <strong>{SENSOR_METADATA[activeEngine.attribution[0].sensor]?.label}</strong> is demonstrating the highest degradation rate. Inspect internal seals.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-zinc-550 text-center font-sans">
+                      Hover over the sensor nodes in the engine blueprint to view locations and diagnostic descriptions.
+                    </div>
+                  )}
+                </div>
+              </div>
+
             </div>
 
             {/* Right: Deep Dive Analytics and Live Streaming */}
@@ -1418,7 +1659,8 @@ export default function Dashboard() {
                     const tamperedPos = new Set<string | number>();
                     const leafIdxToPos: Record<number, number> = {};
                     leaves.forEach((leaf: any, idx: number) => {
-                      const leafIdx = idx + 1;
+                      const record = ledgerHistory[idx];
+                      const leafIdx = record ? record.leaf_index : (idx + 1);
                       leaf.leaf_index = leafIdx;
                       leafIdxToPos[leafIdx] = leaf.pos;
                     });
@@ -1459,7 +1701,7 @@ export default function Dashboard() {
                       }
                     });
                     
-                    let rootNodeObj = null;
+                    let rootNodeObj: any = null;
                     if (peaks.length > 1) {
                       rootNodeObj = {
                         pos: "ROOT",
