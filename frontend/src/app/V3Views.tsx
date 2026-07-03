@@ -204,7 +204,7 @@ export function HangarSelector({
             onClick={() => {
               setSelectedHangar(h.id);
               setHangarAccessKey(h.code);
-              setHangarAccessPin("");
+              setHangarAccessPin(h.hint);
               setHangarAccessError("");
               setIsHangarModalOpen(true);
             }} 
