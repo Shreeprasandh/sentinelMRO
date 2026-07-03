@@ -462,11 +462,11 @@ export default function Dashboard() {
                 }
 
                 if (plane.status === "Airborne") {
-                  let nextProgress = plane.progress + 0.5; // 200s flight duration
+                  let nextProgress = plane.progress + 2.5; // 40s flight duration (40 cycles)
                   let nextPhase = plane.phase;
                   let nextAltitude = plane.altitude;
                   let nextSpeed = plane.speed;
-                  let nextFuel = Math.max(5, plane.fuel - 0.08); // Slowed fuel burn matching duration
+                  let nextFuel = Math.max(5, plane.fuel - 0.4); // Fuel burn matching 40s flight duration
 
                   if (nextProgress >= 100) {
                     const currentDest = plane.destination;
@@ -520,7 +520,11 @@ export default function Dashboard() {
                   // Parked gate cooldown/pre-flight verification
                   let nextDwell = plane.progress + 1;
                   if (nextDwell >= 45) { // 45 seconds gate cooldown
-                    if (!isEngineCritical) {
+                    const engRul = engines[primaryEngId]?.rul ?? 125;
+                    // Plane can only take off if the engine life is calculated to reach the destination successfully (remaining RUL at landing >= 30)
+                    const canCompleteFlight = engRul - 40 >= 30;
+
+                    if (canCompleteFlight) {
                       nextPlanes[id] = {
                         ...plane,
                         status: "Airborne",
@@ -531,6 +535,7 @@ export default function Dashboard() {
                         fuel: 100
                       };
                     } else {
+                      // Ground for maintenance immediately
                       nextPlanes[id] = {
                         ...plane,
                         status: "Maintenance",
