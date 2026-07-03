@@ -466,7 +466,7 @@ export default function Dashboard() {
                 }
                 const isEngineCritical = engHealth < 0.30;
 
-                if (isEngineCritical && plane.status !== "Airborne") {
+                if (isEngineCritical && plane.status !== "Airborne" && plane.status !== "Grounded") {
                   // Ground the aircraft and place it under Maintenance
                   nextPlanes[id] = {
                     ...plane,
@@ -480,11 +480,18 @@ export default function Dashboard() {
                 }
 
                 if (plane.status === "Airborne") {
-                  let nextProgress = plane.progress + 2.5; // 40s flight duration (40 cycles)
+                  const origCoord = HUB_COORDINATES[plane.origin];
+                  const destCoord = HUB_COORDINATES[plane.destination];
+                  const distance = (origCoord && destCoord) 
+                    ? Math.sqrt(Math.pow(destCoord.x - origCoord.x, 2) + Math.pow(destCoord.y - origCoord.y, 2))
+                    : 220;
+                  const flightDuration = Math.round(distance / 2.2) || 100;
+                  
+                  let nextProgress = plane.progress + (100 / flightDuration);
                   let nextPhase = plane.phase;
                   let nextAltitude = plane.altitude;
                   let nextSpeed = plane.speed;
-                  let nextFuel = Math.max(5, plane.fuel - 0.4); // Fuel burn matching 40s flight duration
+                  let nextFuel = Math.max(5, plane.fuel - (95 / flightDuration));
 
                   if (nextProgress >= 100) {
                     const currentDest = plane.destination;
@@ -495,19 +502,20 @@ export default function Dashboard() {
                     const p1 = getControlPoint(currentDest, nextDest);
                     const p2 = HUB_COORDINATES[nextDest];
 
-  nextPlanes[id] = {
+                    nextPlanes[id] = {
                       ...plane,
-                      status: "Maintenance", // Always transition to maintenance immediately upon landing
-                      phase: "Maintenance",
+                      status: "Grounded", // Transition to Grounded landing/taxi phase
+                      phase: "Landing",
                       progress: 0,
                       altitude: 0,
                       speed: 0,
-                      fuel: 100,
+                      fuel: 5, // fuel is empty at landing, refuels during pre-flight
                       origin: currentDest,
                       originName: HUB_COORDINATES[currentDest].name,
                       destination: nextDest,
                       destinationName: HUB_COORDINATES[nextDest].name,
-                      routeCoordinates: [p0, p1, p2]
+                      routeCoordinates: [p0, p1, p2],
+                      readyDurationLimit: 30 // Initialize pre-flight timer to standard 30s
                     };
                   } else {
                     if (nextProgress < 15) {
@@ -534,13 +542,41 @@ export default function Dashboard() {
                       fuel: parseFloat(nextFuel.toFixed(2))
                     };
                   }
-                } else if (plane.status === "Ready") {
-                  // Parked gate cooldown/pre-flight verification
+                } else if (plane.status === "Grounded") {
+                  // Taxiing / Tow to hangar (10 seconds)
                   let nextDwell = plane.progress + 1;
-                  if (nextDwell >= 45) { // 45 seconds gate cooldown
+                  if (nextDwell >= 10) {
+                    nextPlanes[id] = {
+                      ...plane,
+                      status: "Maintenance",
+                      phase: "Maintenance",
+                      progress: 0,
+                      altitude: 0,
+                      speed: 0
+                    };
+                  } else {
+                    nextPlanes[id] = {
+                      ...plane,
+                      progress: nextDwell,
+                      phase: "Landing"
+                    };
+                  }
+                } else if (plane.status === "Ready") {
+                  // Parked gate cooldown/pre-flight verification (uses dynamic limit)
+                  let nextDwell = plane.progress + 1;
+                  const currentLimit = plane.readyDurationLimit ?? 30;
+                  if (nextDwell >= currentLimit) {
+                    const origCoord = HUB_COORDINATES[plane.origin];
+                    const destCoord = HUB_COORDINATES[plane.destination];
+                    const distance = (origCoord && destCoord) 
+                      ? Math.sqrt(Math.pow(destCoord.x - origCoord.x, 2) + Math.pow(destCoord.y - origCoord.y, 2))
+                      : 220;
+                    const flightDuration = Math.round(distance / 2.2) || 100;
+                    const flightWearCycles = Math.ceil(flightDuration / 10);
                     const engRul = engines[primaryEngId]?.rul ?? 125;
+                    
                     // Plane can only take off if the engine life is calculated to reach the destination successfully (remaining RUL at landing >= 30)
-                    const canCompleteFlight = engRul - 40 >= 30;
+                    const canCompleteFlight = engRul - flightWearCycles >= 30;
 
                     if (canCompleteFlight) {
                       nextPlanes[id] = {
@@ -567,12 +603,14 @@ export default function Dashboard() {
                     nextPlanes[id] = {
                       ...plane,
                       progress: nextDwell,
-                      phase: "Pre-Flight"
+                      phase: "Pre-Flight",
+                      fuel: Math.min(100, Math.round(5 + (nextDwell * 95 / currentLimit))) // Refueling progresses visually!
                     };
                   }
                 } else if (plane.status === "Maintenance") {
+                  // Hangar Maintenance dwell (15 seconds)
                   let nextMaintTime = plane.progress + 1;
-                  if (nextMaintTime >= 10) { // 10 seconds auto-maintenance release
+                  if (nextMaintTime >= 15) {
                     triggerAutoMaintenanceOverhaul(primaryEngId);
                     nextPlanes[id] = {
                       ...plane,
