@@ -181,7 +181,14 @@ def append_ledger_record(
     INSERT INTO mro_ledger (timestamp, component_id, action_taken, technician_id, health_snapshot, node_hash)
     VALUES (?, ?, ?, ?, ?, '')
     """, (record.timestamp, record.component_id, record.action_taken, record.technician_id, record.health_snapshot))
+    db.commit()
     
+    # Prune ledger: Keep only the most recent 15 records to save space and keep DAG clean
+    cursor.execute("""
+    DELETE FROM mro_ledger WHERE leaf_index NOT IN (
+        SELECT leaf_index FROM mro_ledger ORDER BY leaf_index DESC LIMIT 15
+    )
+    """)
     db.commit()
     
     # Get the assigned leaf_index
