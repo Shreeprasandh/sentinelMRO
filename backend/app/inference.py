@@ -225,6 +225,24 @@ def simulate_telemetry_matrix(engine_id: str, cycle: int) -> tuple[list[list[flo
     s12 = 8.40 + cycle * 0.0007 * degradation + random.uniform(0, 0.002)
     return matrix, s11, s12
 
+
+DEFAULT_ATTRIBUTION = [
+    {"sensor": "s11", "percentage": 22.5},
+    {"sensor": "s4", "percentage": 18.2},
+    {"sensor": "s12", "percentage": 15.1},
+    {"sensor": "s3", "percentage": 10.4},
+    {"sensor": "s7", "percentage": 8.1},
+    {"sensor": "s8", "percentage": 7.3},
+    {"sensor": "s2", "percentage": 5.4},
+    {"sensor": "s9", "percentage": 4.1},
+    {"sensor": "s15", "percentage": 3.2},
+    {"sensor": "s13", "percentage": 2.1},
+    {"sensor": "s14", "percentage": 1.5},
+    {"sensor": "s17", "percentage": 1.1},
+    {"sensor": "s20", "percentage": 0.6},
+    {"sensor": "s21", "percentage": 0.4}
+]
+
 @router.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
     await websocket.accept()
@@ -232,7 +250,12 @@ async def websocket_telemetry(websocket: WebSocket):
     state = {
         "paused": False,
         "rate_ms": 1000,
-        "engine_cycles": {"ENG-001": 30, "ENG-002": 30, "ENG-003": 30}
+        "engine_cycles": {"ENG-001": 30, "ENG-002": 30, "ENG-003": 30},
+        "attribution_cache": {
+            "ENG-001": DEFAULT_ATTRIBUTION,
+            "ENG-002": DEFAULT_ATTRIBUTION,
+            "ENG-003": DEFAULT_ATTRIBUTION
+        }
     }
     
     async def read_commands():
@@ -264,7 +287,13 @@ async def websocket_telemetry(websocket: WebSocket):
                     matrix, s11, s12 = simulate_telemetry_matrix(engine_id, cycle)
                     
                     health_score, rul_int, anomaly, is_mock = inference_service.preprocess_and_predict(matrix)
-                    attribution = inference_service.compute_attribution(matrix)
+                    
+                    # Conserve CPU: run Integrated Gradients backpropagation once every 10 cycles, else use cached values
+                    if cycle % 10 == 0:
+                        attribution = inference_service.compute_attribution(matrix)
+                        state["attribution_cache"][engine_id] = attribution
+                    else:
+                        attribution = state["attribution_cache"][engine_id]
                     
                     updates[engine_id] = {
                         "engine_id": engine_id,
