@@ -441,9 +441,12 @@ export default function Dashboard() {
                 const plane = nextPlanes[id];
                 const primaryEngId = plane.engines[0];
                 
-                // Get updated engine details from local state
-                const engine = engines[primaryEngId];
-                const isEngineCritical = engine ? engine.health < 0.30 : false;
+                // Get updated engine details from incoming WebSocket message or local state
+                let engHealth = engines[primaryEngId]?.health ?? 1.0;
+                if (data.engines && data.engines[primaryEngId]) {
+                  engHealth = data.engines[primaryEngId].health_score;
+                }
+                const isEngineCritical = engHealth < 0.30;
 
                 if (isEngineCritical) {
                   // Ground the aircraft and place it under Maintenance
@@ -972,6 +975,20 @@ export default function Dashboard() {
           const targetPlaneId = Object.keys(nextPlanes).find(key => nextPlanes[key].engines.includes(engineId));
           if (targetPlaneId) {
             const plane = nextPlanes[targetPlaneId];
+            const isEngineCritical = result.health_score < 0.30;
+
+            if (isEngineCritical) {
+              nextPlanes[targetPlaneId] = {
+                ...plane,
+                status: "Maintenance",
+                phase: "Maintenance",
+                progress: 0,
+                altitude: 0,
+                speed: 0
+              };
+              return nextPlanes;
+            }
+
             if (plane.status !== "Airborne") {
               plane.status = "Airborne";
             }
