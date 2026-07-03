@@ -210,6 +210,25 @@ export interface PlaneData {
   routeCoordinates: { x: number; y: number }[];
 }
 
+export const HUB_COORDINATES: Record<string, { x: number; y: number; name: string }> = {
+  "SEA": { x: 100, y: 100, name: "Seattle (SEA)" },
+  "LHR": { x: 320, y: 95, name: "London (LHR)" },
+  "BOM": { x: 460, y: 160, name: "Mumbai (BOM)" }
+};
+
+export const getControlPoint = (origin: string, destination: string) => {
+  const p0 = HUB_COORDINATES[origin];
+  const p2 = HUB_COORDINATES[destination];
+  if (!p0 || !p2) return { x: 200, y: 100 };
+  const midX = (p0.x + p2.x) / 2;
+  const midY = (p0.y + p2.y) / 2;
+  let offset = -20;
+  if ((origin === "SEA" && destination === "BOM") || (origin === "BOM" && destination === "SEA")) {
+    offset = -30;
+  }
+  return { x: midX, y: midY + offset };
+};
+
 const INITIAL_PLANES: Record<string, PlaneData> = {
   "PL-101": {
     id: "PL-101",
@@ -349,7 +368,8 @@ export default function Dashboard() {
   const [isVerifying, setIsVerifying] = useState(false);
   
   // WebSocket streaming states
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(true);
+  const [lastHoveredPlaneId, setLastHoveredPlaneId] = useState<string>("PL-101");
   const [streamingRate, setStreamingRate] = useState(1000);
   const [hoveredSensor, setHoveredSensor] = useState<string | null>(null);
 
@@ -409,27 +429,54 @@ export default function Dashboard() {
               const nextPlanes = { ...prev };
               Object.keys(nextPlanes).forEach(id => {
                 const plane = nextPlanes[id];
+                const primaryEngId = plane.engines[0];
+                
+                // Get updated engine details from local state
+                const engine = engines[primaryEngId];
+                const isEngineCritical = engine ? engine.health < 0.30 : false;
+
+                if (isEngineCritical) {
+                  // Ground the aircraft and place it under Maintenance
+                  nextPlanes[id] = {
+                    ...plane,
+                    status: "Maintenance",
+                    phase: "Maintenance",
+                    progress: 0,
+                    altitude: 0,
+                    speed: 0
+                  };
+                  return;
+                }
+
                 if (plane.status === "Airborne") {
-                  let nextProgress = plane.progress + 2;
+                  let nextProgress = plane.progress + 0.5; // 200s flight duration
                   let nextPhase = plane.phase;
                   let nextAltitude = plane.altitude;
                   let nextSpeed = plane.speed;
-                  let nextFuel = Math.max(5, plane.fuel - 0.3);
+                  let nextFuel = Math.max(5, plane.fuel - 0.08); // Slowed fuel burn matching duration
 
                   if (nextProgress >= 100) {
-                    nextProgress = 0;
-                    nextPhase = "Landed";
-                    nextAltitude = 0;
-                    nextSpeed = 0;
-                    nextFuel = 100;
+                    const currentDest = plane.destination;
+                    const possibleDests = Object.keys(HUB_COORDINATES).filter(k => k !== currentDest);
+                    const nextDest = possibleDests[Math.floor(Math.random() * possibleDests.length)];
+                    
+                    const p0 = HUB_COORDINATES[currentDest];
+                    const p1 = getControlPoint(currentDest, nextDest);
+                    const p2 = HUB_COORDINATES[nextDest];
+
                     nextPlanes[id] = {
                       ...plane,
                       status: "Ready",
-                      phase: nextPhase,
-                      progress: nextProgress,
-                      altitude: nextAltitude,
-                      speed: nextSpeed,
-                      fuel: nextFuel
+                      phase: "Landed",
+                      progress: 0,
+                      altitude: 0,
+                      speed: 0,
+                      fuel: 100,
+                      origin: currentDest,
+                      originName: HUB_COORDINATES[currentDest].name,
+                      destination: nextDest,
+                      destinationName: HUB_COORDINATES[nextDest].name,
+                      routeCoordinates: [p0, p1, p2]
                     };
                   } else {
                     if (nextProgress < 15) {
@@ -453,20 +500,40 @@ export default function Dashboard() {
                       phase: nextPhase,
                       altitude: nextAltitude,
                       speed: nextSpeed,
-                      fuel: parseFloat(nextFuel.toFixed(1))
+                      fuel: parseFloat(nextFuel.toFixed(2))
                     };
                   }
-                } else if (plane.status === "Ready" && Math.random() < 0.05) {
-                  // Simulate random takeoff to make the radar map dynamic
-                  nextPlanes[id] = {
-                    ...plane,
-                    status: "Airborne",
-                    phase: "Takeoff",
-                    progress: 1,
-                    speed: 150,
-                    altitude: 500,
-                    fuel: 100
-                  };
+                } else if (plane.status === "Ready") {
+                  // Parked gate cooldown/pre-flight verification
+                  let nextDwell = plane.progress + 1;
+                  if (nextDwell >= 45) { // 45 seconds gate cooldown
+                    if (!isEngineCritical) {
+                      nextPlanes[id] = {
+                        ...plane,
+                        status: "Airborne",
+                        phase: "Takeoff",
+                        progress: 0.1,
+                        speed: 150,
+                        altitude: 500,
+                        fuel: 100
+                      };
+                    } else {
+                      nextPlanes[id] = {
+                        ...plane,
+                        status: "Maintenance",
+                        phase: "Maintenance",
+                        progress: 0,
+                        altitude: 0,
+                        speed: 0
+                      };
+                    }
+                  } else {
+                    nextPlanes[id] = {
+                      ...plane,
+                      progress: nextDwell,
+                      phase: "Pre-Flight"
+                    };
+                  }
                 }
               });
               return nextPlanes;
@@ -543,6 +610,16 @@ export default function Dashboard() {
     };
     init();
   }, []);
+
+  // V3: Auto-trigger Federated Calibration sync weight update every 45 seconds
+  useEffect(() => {
+    if (!backendOnline) return;
+    const interval = setInterval(() => {
+      console.log("Triggering auto-federated synchronization round...");
+      runFederatedRound();
+    }, 45000);
+    return () => clearInterval(interval);
+  }, [backendOnline]);
 
   const checkBackendHealth = async (): Promise<boolean> => {
     try {
@@ -710,6 +787,25 @@ export default function Dashboard() {
         fetchLedgerHistory();
 
         // --- CLOSED LOOP SIMULATION: UPDATE ENGINE STATE IN UI ---
+        // V3: Reset corresponding aircraft status and release maintenance interlock on overhaul
+        setPlanes(prev => {
+          const nextPlanes = { ...prev };
+          const targetPlaneId = Object.keys(nextPlanes).find(key => nextPlanes[key].engines.includes(formEngine));
+          if (targetPlaneId) {
+            const plane = nextPlanes[targetPlaneId];
+            nextPlanes[targetPlaneId] = {
+              ...plane,
+              status: "Ready",
+              phase: "Pre-Flight",
+              progress: 0,
+              altitude: 0,
+              speed: 0,
+              fuel: 100
+            };
+          }
+          return nextPlanes;
+        });
+
         setEngines(prev => {
           const target = prev[formEngine];
           if (!target) return prev;
@@ -998,6 +1094,8 @@ export default function Dashboard() {
         setSelectedPlaneId={setSelectedPlaneId}
         hoveredPlaneId={hoveredPlaneId}
         setHoveredPlaneId={setHoveredPlaneId}
+        lastHoveredPlaneId={lastHoveredPlaneId}
+        setLastHoveredPlaneId={setLastHoveredPlaneId}
         engines={engines}
         isStreaming={isStreaming}
         backendOnline={backendOnline}
@@ -1062,6 +1160,7 @@ export default function Dashboard() {
       nodes={nodes}
       ledgerHistory={ledgerHistory}
       mounted={mounted}
+      lastHoveredPlaneId={lastHoveredPlaneId}
     />
   );
 }

@@ -25,7 +25,8 @@ import {
   Settings,
   Cpu,
   Database,
-  CheckCircle
+  CheckCircle,
+  Lock
 } from "lucide-react";
 import {
   LineChart,
@@ -37,7 +38,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 
-import { PlaneData, EngineData, LedgerRecord, FederatedRound } from "./page";
+import { PlaneData, EngineData, LedgerRecord, FederatedRound, HUB_COORDINATES, getControlPoint } from "./page";
 
 // --- HELPERS ---
 const getBezierCoordinates = (
@@ -127,7 +128,7 @@ export function LoginScreen({
         )}
         <form onSubmit={onSubmit} className="space-y-4 text-left">
           <div className="space-y-1">
-            <label className="text-[9px] font-mono text-zinc-555 uppercase">Technician ID / PubKey</label>
+            <label className="text-[9px] font-mono text-zinc-550 uppercase">Technician ID / PubKey</label>
             <input 
               type="text" 
               value={loginTechId} 
@@ -243,7 +244,7 @@ export function HangarSelector({
               </div>
             </div>
             <div className="flex space-x-3 text-xs font-mono">
-              <button onClick={() => setIsHangarModalOpen(false)} className="flex-1 py-2 border border-zinc-850 hover:border-zinc-750 text-zinc-450 rounded cursor-pointer">Cancel</button>
+              <button onClick={() => setIsHangarModalOpen(false)} className="flex-1 py-2 border border-zinc-850 hover:border-zinc-750 text-zinc-455 rounded cursor-pointer">Cancel</button>
               <button 
                 onClick={() => {
                   const verified = 
@@ -279,6 +280,8 @@ interface HangarDashboardProps {
   setSelectedPlaneId: (v: string | null) => void;
   hoveredPlaneId: string | null;
   setHoveredPlaneId: (v: string | null) => void;
+  lastHoveredPlaneId: string;
+  setLastHoveredPlaneId: (v: string) => void;
   engines: Record<string, EngineData>;
   isStreaming: boolean;
   backendOnline: boolean;
@@ -296,6 +299,8 @@ export function HangarDashboard({
   setSelectedPlaneId,
   hoveredPlaneId,
   setHoveredPlaneId,
+  lastHoveredPlaneId,
+  setLastHoveredPlaneId,
   engines,
   isStreaming,
   backendOnline,
@@ -310,6 +315,13 @@ export function HangarDashboard({
   const stationId = 
     selectedHangar === "hangar-01" ? "STATION_001" :
     selectedHangar === "hangar-02" ? "STATION_002" : "STATION_003";
+
+  // Active HUD aircraft lookup
+  const activeHudPlaneId = hoveredPlaneId || lastHoveredPlaneId || "PL-101";
+  const activeHudPlane = planes[activeHudPlaneId] || planes["PL-101"];
+  const primaryHudEng = engines[activeHudPlane.engines[0]];
+  const hudHealthPct = primaryHudEng ? (primaryHudEng.health * 100).toFixed(0) : "100";
+  const hudRul = primaryHudEng ? primaryHudEng.rul : "125";
 
   return (
     <div className="flex-1 flex flex-col space-y-6 bg-zinc-950 text-zinc-100 font-sans max-w-7xl mx-auto w-full p-4 md:p-6 select-none">
@@ -332,7 +344,7 @@ export function HangarDashboard({
               setViewState("hangar-select");
               setSelectedHangar(null);
             }} 
-            className="border border-zinc-800 hover:border-zinc-650 px-3 py-1 rounded text-zinc-300 font-bold transition-all cursor-pointer bg-zinc-900/10 animate-transition"
+            className="border border-zinc-800 hover:border-zinc-650 px-3 py-1 rounded text-zinc-305 font-bold transition-all cursor-pointer bg-zinc-900/10"
           >
             DISCONNECT NODE
           </button>
@@ -340,10 +352,10 @@ export function HangarDashboard({
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Analytics & Catalog */}
+        {/* Left Column: Environmental Telemetry & Scrollable Catalog */}
         <div className="lg:col-span-1 space-y-6">
           
-          {/* Environmental State */}
+          {/* Station Environmental info */}
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
               <Server className="h-4 w-4 text-zinc-550" />
@@ -368,89 +380,129 @@ export function HangarDashboard({
             </div>
           </div>
 
-          {/* Flight Directory List */}
+          {/* Scrollable Hangar Catalog List */}
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
               <Compass className="h-4 w-4 text-zinc-550" />
               <span>Active Hangar Catalog</span>
             </h3>
             
-            <div className="space-y-3 font-mono text-xs">
-              {Object.values(planes).map(p => (
-                <div 
-                  key={p.id}
-                  onClick={() => {
-                    setSelectedPlaneId(p.id);
-                    setViewState("asset-detail");
-                  }}
-                  onMouseEnter={() => setHoveredPlaneId(p.id)}
-                  onMouseLeave={() => setHoveredPlaneId(null)}
-                  className="p-3 bg-zinc-950 border border-zinc-900 hover:border-zinc-700 rounded-lg cursor-pointer transition-all flex items-center justify-between"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <Plane className={`h-3 w-3 ${p.status === "Airborne" ? "text-emerald-400" : p.status === "Ready" ? "text-zinc-400" : "text-amber-500"}`} />
-                      <span className="font-bold text-zinc-200">{p.id}</span>
+            {/* Scrollable container: max-h of 200px and scroll bars hidden */}
+            <div className="max-h-[220px] overflow-y-auto no-scrollbar space-y-3 pr-1">
+              {Object.values(planes).map(p => {
+                const eng = engines[p.engines[0]];
+                const isCrit = eng ? eng.health < 0.30 : false;
+                
+                return (
+                  <div 
+                    key={p.id}
+                    onClick={() => {
+                      setSelectedPlaneId(p.id);
+                      setViewState("asset-detail");
+                    }}
+                    onMouseEnter={() => {
+                      setHoveredPlaneId(p.id);
+                      setLastHoveredPlaneId(p.id);
+                    }}
+                    onMouseLeave={() => setHoveredPlaneId(null)}
+                    className={`p-3 bg-zinc-950 border rounded-lg cursor-pointer transition-all flex items-center justify-between ${
+                      (hoveredPlaneId === p.id || lastHoveredPlaneId === p.id)
+                        ? "border-emerald-500/80 shadow-[0_0_10px_rgba(16,185,129,0.15)]" 
+                        : "border-zinc-900 hover:border-zinc-800"
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <Plane className={`h-3 w-3 ${p.status === "Airborne" ? "text-emerald-450" : isCrit ? "text-red-500 animate-pulse" : p.status === "Ready" ? "text-zinc-400" : "text-amber-500"}`} />
+                        <span className="font-bold text-zinc-200">{p.id}</span>
+                      </div>
+                      <span className="text-[10px] text-zinc-500 block">{p.origin} ➔ {p.destination}</span>
                     </div>
-                    <span className="text-[10px] text-zinc-500 block">{p.origin} ➔ {p.destination}</span>
+                    <div className="text-right space-y-0.5">
+                      <span className={`text-[10px] font-bold uppercase ${
+                        isCrit ? "text-red-500 animate-pulse" : p.status === "Airborne" ? "text-emerald-400" : p.status === "Ready" ? "text-zinc-400" : "text-amber-500"
+                      }`}>
+                        {isCrit ? "Grounded" : p.status}
+                      </span>
+                      {p.status === "Airborne" && <div className="text-[9px] text-zinc-500">{(p.progress).toFixed(0)}% Route</div>}
+                      {p.status === "Ready" && <div className="text-[9px] text-zinc-600">Dwell: {p.progress}s/45s</div>}
+                    </div>
                   </div>
-                  <div className="text-right space-y-0.5">
-                    <span className={`text-[10px] font-bold uppercase ${p.status === "Airborne" ? "text-emerald-400 animate-pulse" : p.status === "Ready" ? "text-zinc-400" : "text-amber-500"}`}>
-                      {p.status}
-                    </span>
-                    {p.status === "Airborne" && <div className="text-[9px] text-zinc-500">{p.progress}% Route</div>}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
 
-        {/* Right Column: Radar Map & Calibration Console */}
+        {/* Right Column: High-tech Flight Radar Map & Automatic Federated weight consolidator */}
         <div className="lg:col-span-2 space-y-6">
           
           {/* Radar Map */}
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4">
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                <Map className="h-4 w-4 text-zinc-550" />
+                <Map className="h-4 w-4 text-zinc-500" />
                 <span>Real-Time Regional Flight Radar</span>
               </h3>
               {isStreaming && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>}
             </div>
 
             {/* Radar Screen */}
-            <div className="bg-zinc-950 border border-zinc-900/80 rounded-xl relative p-1 overflow-hidden flex flex-col justify-center">
+            <div className="bg-zinc-950 border border-zinc-900/80 rounded-xl relative p-1 overflow-hidden flex flex-col justify-center shadow-inner">
               <svg viewBox="0 0 600 240" className="w-full h-auto text-zinc-800 select-none">
                 {/* Grid Lines */}
                 {Array.from({ length: 15 }, (_, i) => (
-                  <line key={`x-${i}`} x1={i * 40} y1={0} x2={i * 40} y2={240} stroke="#18181b" strokeWidth="0.5" />
+                  <line key={`x-${i}`} x1={i * 40} y1={0} x2={i * 40} y2={240} stroke="#13131a" strokeWidth="0.5" />
                 ))}
                 {Array.from({ length: 6 }, (_, i) => (
-                  <line key={`y-${i}`} x1={0} y1={i * 40} x2={600} y2={i * 40} stroke="#18181b" strokeWidth="0.5" />
+                  <line key={`y-${i}`} x1={0} y1={i * 40} x2={600} y2={i * 40} stroke="#13131a" strokeWidth="0.5" strokeDasharray="3,3" />
                 ))}
                 
-                {/* Flight Paths */}
-                <path d="M 100,100 Q 210,75 320,95" fill="none" stroke="#27272a" strokeWidth="1.5" strokeDasharray="4,4" />
-                <path d="M 320,95 Q 390,110 460,160" fill="none" stroke="#27272a" strokeWidth="1.5" strokeDasharray="4,4" />
-                <path d="M 460,160 Q 280,110 100,100" fill="none" stroke="#27272a" strokeWidth="1.5" strokeDasharray="4,4" />
-                
-                {/* Hub Locations */}
-                {[
-                  { id: "SEA", name: "SEA (Seattle)", x: 100, y: 100 },
-                  { id: "LHR", name: "LHR (London)", x: 320, y: 95 },
-                  { id: "BOM", name: "BOM (Mumbai)", x: 460, y: 160 }
-                ].map(hub => {
-                  const isLocal = 
-                    (selectedHangar === "hangar-01" && hub.id === "BOM") ||
-                    (selectedHangar === "hangar-02" && hub.id === "LHR") ||
-                    (selectedHangar === "hangar-03" && hub.id === "SEA");
+                {/* Flight Paths Tracing (Dotted curves) */}
+                {Object.values(planes).map(p => {
+                  const isHovered = hoveredPlaneId === p.id || lastHoveredPlaneId === p.id;
+                  const coords = p.routeCoordinates;
+                  if (coords.length < 3) return null;
                   
                   return (
-                    <g key={hub.id}>
-                      {isLocal && <circle cx={hub.x} cy={hub.y} r="10" className="fill-emerald-500/10 stroke-emerald-500/30 animate-pulse" strokeWidth="1" />}
-                      <circle cx={hub.x} cy={hub.y} r="4" className={isLocal ? "fill-emerald-400" : "fill-zinc-650"} />
-                      <text x={hub.x} y={hub.y - 8} textAnchor="middle" className="font-mono text-[9px] fill-zinc-550">{hub.name}</text>
+                    <path
+                      key={`path-${p.id}`}
+                      d={`M ${coords[0].x},${coords[0].y} Q ${coords[1].x},${coords[1].y} ${coords[2].x},${coords[2].y}`}
+                      fill="none"
+                      stroke={isHovered ? "#10b981" : "#1f1f2e"}
+                      strokeWidth={isHovered ? "2.5" : "1.2"}
+                      strokeDasharray={isHovered ? "0" : "4,4"}
+                      className="transition-all duration-300 cursor-pointer"
+                      onMouseEnter={() => {
+                        setHoveredPlaneId(p.id);
+                        setLastHoveredPlaneId(p.id);
+                      }}
+                      onMouseLeave={() => setHoveredPlaneId(null)}
+                    />
+                  );
+                })}
+                
+                {/* Hub Locations & Text Shadows for maximum contrast */}
+                {Object.keys(HUB_COORDINATES).map(key => {
+                  const hub = HUB_COORDINATES[key];
+                  const isLocal = 
+                    (selectedHangar === "hangar-01" && key === "BOM") ||
+                    (selectedHangar === "hangar-02" && key === "LHR") ||
+                    (selectedHangar === "hangar-03" && key === "SEA");
+                  
+                  // If active route is hovered, check if this hub is the start or stop coordinate!
+                  const currentActivePlane = planes[activeHudPlaneId];
+                  const isRouteEnd = currentActivePlane ? (currentActivePlane.origin === key || currentActivePlane.destination === key) : false;
+
+                  return (
+                    <g key={key}>
+                      {isLocal && <circle cx={hub.x} cy={hub.y} r="12" className="fill-emerald-500/5 stroke-emerald-500/20 animate-pulse" strokeWidth="1" />}
+                      {isRouteEnd && <circle cx={hub.x} cy={hub.y} r="8" className="fill-none stroke-emerald-400/40 animate-ping" strokeWidth="1" />}
+                      <circle cx={hub.x} cy={hub.y} r="4.5" className={isLocal ? "fill-emerald-400" : isRouteEnd ? "fill-emerald-500/80" : "fill-zinc-600"} />
+                      
+                      {/* Double render text labels for white high-contrast outlines */}
+                      <text x={hub.x} y={hub.y - 10} textAnchor="middle" className="font-mono text-[9px] font-bold fill-none stroke-zinc-950 stroke-[3px] select-none">{hub.name}</text>
+                      <text x={hub.x} y={hub.y - 10} textAnchor="middle" className={`font-mono text-[9px] font-bold select-none ${isLocal ? "fill-emerald-400" : isRouteEnd ? "fill-emerald-300" : "fill-zinc-300"}`}>{hub.name}</text>
                     </g>
                   );
                 })}
@@ -459,17 +511,21 @@ export function HangarDashboard({
                 {Object.values(planes).map(p => {
                   if (p.status !== "Airborne") return null;
                   const coords = getPlaneCoordinates(p);
-                  const isHovered = hoveredPlaneId === p.id;
+                  const isHovered = hoveredPlaneId === p.id || lastHoveredPlaneId === p.id;
                   const engineHealth = engines[p.engines[0]]?.health ?? 1.0;
                   
-                  let markerColor = "fill-emerald-500";
-                  if (engineHealth < 0.35) markerColor = "fill-red-500 animate-pulse";
-                  else if (engineHealth < 0.75) markerColor = "fill-amber-500";
+                  let markerColor = "fill-emerald-500 stroke-emerald-950";
+                  if (engineHealth < 0.35) markerColor = "fill-red-500 stroke-red-200 animate-pulse";
+                  else if (engineHealth < 0.75) markerColor = "fill-amber-500 stroke-amber-200";
+                  else if (isHovered) markerColor = "fill-emerald-400 stroke-white";
 
                   return (
                     <g 
                       key={p.id}
-                      onMouseEnter={() => setHoveredPlaneId(p.id)}
+                      onMouseEnter={() => {
+                        setHoveredPlaneId(p.id);
+                        setLastHoveredPlaneId(p.id);
+                      }}
                       onMouseLeave={() => setHoveredPlaneId(null)}
                       className="cursor-pointer"
                       onClick={() => {
@@ -477,108 +533,104 @@ export function HangarDashboard({
                         setViewState("asset-detail");
                       }}
                     >
-                      {isHovered && <circle cx={coords.x} cy={coords.y} r="12" className="fill-zinc-100/10 stroke-zinc-100/20" />}
-                      <circle cx={coords.x} cy={coords.y} r="5" className={markerColor} />
-                      <text x={coords.x + 8} y={coords.y + 3} className="font-mono text-[8px] fill-zinc-300 font-bold select-none">{p.id}</text>
+                      {isHovered && <circle cx={coords.x} cy={coords.y} r="12" className="fill-emerald-500/10 stroke-emerald-500/30 animate-pulse" strokeWidth="0.8" />}
+                      <circle cx={coords.x} cy={coords.y} r="5.5" className={`${markerColor} transition-colors duration-300`} strokeWidth="1" />
+                      
+                      {/* High contrast labels */}
+                      <text x={coords.x + 8} y={coords.y + 3} className="font-mono text-[8px] font-bold fill-none stroke-zinc-950 stroke-[2.5px] select-none">{p.id}</text>
+                      <text x={coords.x + 8} y={coords.y + 3} className={`font-mono text-[8px] font-bold select-none ${isHovered ? "fill-emerald-350" : "fill-zinc-200"}`}>{p.id}</text>
                     </g>
                   );
                 })}
               </svg>
             </div>
 
-            {/* Radar Hover HUD Panel */}
-            <div className="bg-zinc-950/60 border border-zinc-900 p-3.5 rounded-lg text-xs font-mono min-h-[68px] flex items-center justify-center">
-              {(() => {
-                const activePlane = Object.values(planes).find(p => p.id === hoveredPlaneId) || 
-                                   Object.values(planes).find(p => p.status === "Airborne");
-                
-                if (!activePlane) {
-                  return <span className="text-zinc-600 font-mono text-[10px]">NO ACTIVE AIRBORNE ASSETS DETECTED IN REGION.</span>;
-                }
-                
-                const primaryEng = engines[activePlane.engines[0]];
-                const healthPct = primaryEng ? (primaryEng.health * 100).toFixed(0) : "100";
-                const rulCyc = primaryEng ? primaryEng.rul : "125";
-
-                return (
-                  <div className="w-full grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
-                    <div>
-                      <span className="text-[9px] text-zinc-555 block uppercase tracking-wider">AIRCRAFT ID</span>
-                      <strong className="text-zinc-200">{activePlane.name}</strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-zinc-555 block uppercase tracking-wider">FLIGHT ROUTE</span>
-                      <strong className="text-zinc-300">{activePlane.origin} ➔ {activePlane.destination} ({activePlane.phase})</strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-zinc-555 block uppercase tracking-wider">ALT / SPEED</span>
-                      <strong className="text-zinc-300">{activePlane.altitude} ft / {activePlane.speed} kt</strong>
-                    </div>
-                    <div>
-                      <span className="text-[9px] text-zinc-555 block uppercase tracking-wider">PROPULSION HEALTH</span>
-                      <strong className={primaryEng?.health < 0.35 ? "text-red-400 animate-pulse" : primaryEng?.health < 0.75 ? "text-amber-400" : "text-emerald-400"}>
-                        {healthPct}% (RUL: {rulCyc} CYC)
-                      </strong>
-                    </div>
-                  </div>
-                );
-              })()}
+            {/* Live Telemetry HUD Information Panel */}
+            <div className="bg-zinc-950/80 border border-zinc-900 p-4 rounded-lg text-xs font-mono min-h-[68px] flex items-center justify-center relative">
+              <div className="w-full grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
+                <div>
+                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">AIRCRAFT ID</span>
+                  <strong className="text-zinc-200 font-mono text-[11px] block truncate">{activeHudPlane.name}</strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">FLIGHT ROUTE</span>
+                  <strong className="text-zinc-300 font-mono text-[11px] block">{activeHudPlane.origin} ➔ {activeHudPlane.destination} ({activeHudPlane.phase})</strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">ALTITUDE & AIRSPEED</span>
+                  <strong className="text-zinc-300 font-mono text-[11px] block">{activeHudPlane.altitude} ft / {activeHudPlane.speed} kt</strong>
+                </div>
+                <div>
+                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">PROPULSION HEALTH</span>
+                  <strong className={`font-mono text-[11px] block uppercase ${primaryHudEng?.health < 0.35 ? "text-red-400 animate-pulse" : primaryHudEng?.health < 0.75 ? "text-amber-400" : "text-emerald-400"}`}>
+                    {hudHealthPct}% (RUL: {hudRul} CYC)
+                  </strong>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Federated Calibration (Migrated from tab 2 of V2) */}
+          {/* Automatic Federated Calibration aggregator card */}
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-6 text-left">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
               <div className="space-y-1">
-                <span className="text-[10px] font-mono text-zinc-555 uppercase tracking-widest">
-                  Distributed parameter updates
+                <span className="text-[10px] font-mono text-zinc-555 uppercase tracking-widest block">
+                  Autonomic Parameter Synchronization (Every 45s)
                 </span>
                 <h4 className="text-sm font-bold text-zinc-250 uppercase flex items-center space-x-2 font-mono">
                   <Shield className="h-4 w-4 text-zinc-500" />
                   <span>Station Federated Training Consolidator</span>
                 </h4>
               </div>
-              <button
-                onClick={runFederatedRound}
-                disabled={isFederating || !backendOnline}
-                className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-1.5 px-3 rounded text-[10px] tracking-wider transition-all cursor-pointer"
-              >
-                <Play className={`h-3 w-3 ${isFederating ? "animate-spin" : ""}`} />
-                <span>{isFederating ? "SYNCING..." : "SYNC STATION WEIGHTS"}</span>
-              </button>
+              <div className="flex items-center space-x-2 text-[10px] font-mono text-zinc-500">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>SYNC POOL ACTIVE</span>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 font-sans text-xs">
-              <div className="md:col-span-1 space-y-2 font-mono text-[10px] text-zinc-500">
-                <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded">
-                  <strong className="text-zinc-400 block text-[10px] mb-0.5">LOCAL NO-IID GRADIENTS:</strong>
-                  <div>Station 01: Nominal Operations</div>
-                  <div>Station 02: Stress Diagnostics</div>
-                  <div>Station 03: Balanced Fleet</div>
-                </div>
-                <div className="p-3 bg-zinc-950/40 border border-zinc-900 rounded space-y-1.5">
-                  <strong>FEDPROX CONFIGURATION:</strong>
-                  <div>REGULARIZATION: mu=0.01</div>
-                  <div>DIFFERENTIAL PRIVACY: sigma=0.001</div>
+              
+              {/* Left Column: Node Training Indicator Status Grid (fills the gap) */}
+              <div className="md:col-span-1 space-y-3 font-mono text-[10px]">
+                <strong className="text-zinc-400 block tracking-wider uppercase">Distributed Calibration Grid</strong>
+                
+                <div className="space-y-2 bg-zinc-950/40 p-3 border border-zinc-900/60 rounded">
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">MUMBAI_STN1</span>
+                    <span className="text-emerald-400 font-bold">Loss: 0.015</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">LONDON_STN2</span>
+                    <span className="text-emerald-400 font-bold">Loss: 0.032</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-500">SEATTLE_STN3</span>
+                    <span className="text-emerald-400 font-bold">Loss: 0.021</span>
+                  </div>
+                  <div className="border-t border-zinc-900/60 pt-2 flex justify-between text-[9px] text-zinc-550">
+                    <span>DP GRADIENTS:</span>
+                    <span>LAPLACE ACTIVE</span>
+                  </div>
                 </div>
               </div>
 
+              {/* Training Convergence Plot (displays the last 10 rounds) */}
               <div className="md:col-span-2 space-y-2">
-                <span className="font-mono text-[10px] text-zinc-555 uppercase tracking-wider block text-left">Convergence progress chart</span>
-                <div className="h-48 w-full bg-zinc-950/40 p-2 border border-zinc-900 rounded-lg">
+                <span className="font-mono text-[10px] text-zinc-555 uppercase tracking-wider block text-left">Convergence log (Last 10 updates)</span>
+                <div className="h-44 w-full bg-zinc-950/40 p-2 border border-zinc-900 rounded-lg">
                   {mounted && federatedHistory.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={federatedHistory}>
+                      <LineChart data={federatedHistory.slice(-10)}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
                         <XAxis dataKey="round" stroke="#3f3f46" fontSize={8} fontFamily="monospace" />
                         <YAxis stroke="#3f3f46" fontSize={8} fontFamily="monospace" />
                         <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#18181b", color: "#f4f4f5", fontFamily: "monospace", fontSize: 8 }} />
-                        <Line type="monotone" dataKey="global_loss" name="Loss" stroke="#f4f4f5" strokeWidth={1.5} dot={{ r: 2 }} />
+                        <Line type="monotone" dataKey="global_loss" name="Loss" stroke="#10b981" strokeWidth={1.8} dot={{ r: 3 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-full w-full flex items-center justify-center font-mono text-zinc-650 text-[10px]">
-                      No calibration cycles executed. Click Sync Weights to compile parameters.
+                      No calibration cycles executed. Streaming automatic weights.
                     </div>
                   )}
                 </div>
@@ -620,19 +672,69 @@ export function AssetDetail({
   const rulCyc = engine ? engine.rul : "125";
   const cycles = engine ? engine.cycle : "0";
 
+  const getHealthBarColor = (health: number) => {
+    if (health >= 0.75) return "bg-emerald-500";
+    if (health >= 0.35) return "bg-amber-500";
+    return "bg-red-500 animate-pulse";
+  };
+
+  // Live weather logs / Transponder communications (fills bottom left gap)
+  const getSimulatedCommsLog = () => {
+    if (plane.status === "Maintenance") {
+      return [
+        "MRO: Maintenance interlock engaged.",
+        "SYS: Awaiting turbofan certified overhaul.",
+        "SEC: Committing signed logs enabled."
+      ];
+    }
+    if (plane.progress < 15) {
+      return [
+        `ATC: ${plane.id} cleared for takeoff. Wind 12kt.`,
+        "SYS: HPC turbine temperature rising nominal.",
+        "AP: Autopilot altitude arm set 10000ft."
+      ];
+    }
+    if (plane.progress >= 15 && plane.progress < 85) {
+      return [
+        `SYS: Cruise hold active at ${plane.altitude} ft.`,
+        "COM: Secure transponder ping BOM OK.",
+        "FDK: Fuel depletion rate checks stable."
+      ];
+    }
+    return [
+      `ATC: Contact tower. Preparing descent to ${plane.destination}.`,
+      "SYS: Landing gear pressure checks OK.",
+      "SYS: LPC thrust reversers armed."
+    ];
+  };
+
   return (
     <div className="flex-1 flex flex-col space-y-6 bg-zinc-950 text-zinc-100 font-sans max-w-7xl mx-auto w-full p-4 md:p-6 select-none">
       <header className="flex items-center justify-between border-b border-zinc-900 pb-5 gap-4">
-        <button 
-          onClick={() => {
-            setSelectedPlaneId(null);
-            setViewState("dashboard");
-          }} 
-          className="flex items-center space-x-2 border border-zinc-800 hover:border-zinc-700 px-3 py-1.5 rounded font-mono text-xs text-zinc-400 cursor-pointer bg-zinc-900/10"
-        >
-          <ArrowLeft className="h-3 w-3" />
-          <span>OPERATIONS TERMINAL</span>
-        </button>
+        <div className="flex items-center space-x-3">
+          <button 
+            onClick={() => {
+              setSelectedPlaneId(null);
+              setViewState("dashboard");
+            }} 
+            className="flex items-center space-x-2 border border-zinc-800 hover:border-zinc-700 px-3 py-1.5 rounded font-mono text-xs text-zinc-400 cursor-pointer bg-zinc-900/10"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            <span>OPERATIONS TERMINAL</span>
+          </button>
+          
+          {/* Relocated SentinelWRO button */}
+          <button 
+            onClick={() => {
+              setSelectedEngineId(primaryEngineId);
+              setViewState("sentinel-gate");
+            }} 
+            className="flex items-center space-x-2 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 px-3 py-1.5 rounded font-mono text-xs font-bold cursor-pointer"
+          >
+            <Cpu className="h-3 w-3" />
+            <span>SentinelWRO</span>
+          </button>
+        </div>
         
         <h2 className="text-sm font-bold text-zinc-150 font-mono uppercase">
           AIRCRAFT DOSSIER: {plane.id}
@@ -640,21 +742,38 @@ export function AssetDetail({
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Plane Specifications */}
-        <div className="lg:col-span-1 bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
-          <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Specifications Catalog</h3>
-          <div className="space-y-3 font-mono text-[11px]">
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">MODEL ID:</span><span className="text-zinc-250 font-bold">{plane.model}</span></div>
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">CURRENT ROUTE:</span><span className="text-zinc-250">{plane.origin} ➔ {plane.destination}</span></div>
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">FLIGHT STATUS:</span><span className="text-zinc-250 uppercase font-bold">{plane.status}</span></div>
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">FLIGHT PHASE:</span><span className="text-zinc-250">{plane.phase}</span></div>
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">AIRSPEED:</span><span className="text-zinc-250">{plane.speed} kt</span></div>
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">ALTITUDE:</span><span className="text-zinc-250">{plane.altitude} ft</span></div>
-            <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">FUEL CAPACITY:</span><span className="text-zinc-250">{plane.fuel}%</span></div>
+        {/* Left Column: Live specifications (Reactive) & Comms HUD (fills the gap) */}
+        <div className="lg:col-span-1 space-y-6">
+          
+          {/* Plane specifications (completely reactive) */}
+          <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
+            <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Specifications Catalog</h3>
+            <div className="space-y-3 font-mono text-[11px]">
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">MODEL ID:</span><span className="text-zinc-250 font-bold">{plane.model}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">CURRENT ROUTE:</span><span className="text-zinc-250">{plane.origin} ➔ {plane.destination}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">FLIGHT STATUS:</span><span className="text-zinc-250 uppercase font-bold">{plane.status}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">FLIGHT PHASE:</span><span className="text-zinc-250">{plane.phase}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">AIRSPEED:</span><span className="text-zinc-250">{plane.speed} kt</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">ALTITUDE:</span><span className="text-zinc-250">{plane.altitude} ft</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">FUEL CAPACITY:</span><span className="text-zinc-250">{plane.fuel}%</span></div>
+            </div>
+          </div>
+
+          {/* Live Flight Deck Communications Log (fills the gap) */}
+          <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
+            <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Flight Deck Comms Log</h3>
+            <div className="bg-zinc-950/80 p-3 rounded border border-zinc-900 text-[10px] font-mono text-zinc-500 space-y-1.5 min-h-[92px]">
+              {getSimulatedCommsLog().map((log, idx) => (
+                <div key={idx} className="flex items-center space-x-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/60"></span>
+                  <span className="truncate">{log}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Engine Health Summary & Launch Gate */}
+        {/* Right Column: Engine Health summary & Audit log table */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-6 space-y-5 text-left">
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Turbofan Propulsion Node</h3>
@@ -665,7 +784,7 @@ export function AssetDetail({
                   <h4 className="font-bold text-zinc-200">{primaryEngineId}</h4>
                   <span className="text-[10px] text-zinc-550">TCN Prognostics Diagnostics Matrix</span>
                 </div>
-                <span className={`text-[10px] uppercase font-bold ${engine?.status === "Nominal" ? "text-emerald-400" : engine?.status === "Warning" ? "text-amber-400" : "text-red-400 animate-pulse"}`}>
+                <span className={`text-[10px] uppercase font-bold ${engine?.status === "Nominal" ? "text-emerald-400" : engine?.status === "Warning" ? "text-amber-500" : "text-red-400 animate-pulse"}`}>
                   {engine?.status || "Nominal"}
                 </span>
               </div>
@@ -681,26 +800,9 @@ export function AssetDetail({
               </div>
 
               <div className="flex justify-between text-[11px] font-mono text-zinc-500 border-t border-zinc-900 pt-3">
-                <span>ACCUMULATED CYCLES: <strong className="text-zinc-350">{cycles}</strong></span>
-                <span>REMAINING USEFUL LIFE: <strong className="text-zinc-350">{rulCyc} CYC</strong></span>
+                <span>ACCUMULATED CYCLES: <strong className="text-zinc-300">{cycles}</strong></span>
+                <span>REMAINING USEFUL LIFE: <strong className="text-zinc-300">{rulCyc} CYC</strong></span>
               </div>
-            </div>
-
-            {/* Launch SentinelMRO Gate button */}
-            <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl flex flex-col md:flex-row justify-between items-center gap-4">
-              <div className="space-y-1 text-center md:text-left">
-                <h4 className="text-xs font-bold text-emerald-400 font-mono uppercase">SentinelMRO Diagnostic Enclave</h4>
-                <p className="text-[11px] text-zinc-500 font-sans">Access local cryptographically secured ledger and edge AI explainability models.</p>
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedEngineId(primaryEngineId);
-                  setViewState("sentinel-gate");
-                }}
-                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-mono font-bold text-xs rounded-md shadow-lg shadow-emerald-500/10 cursor-pointer uppercase transition-all active:scale-95"
-              >
-                Launch Gateway
-              </button>
             </div>
           </div>
 
@@ -724,7 +826,7 @@ export function AssetDetail({
                       <tr key={r.leaf_index}>
                         <td className="py-2 px-3 text-zinc-500 font-bold">#{r.leaf_index}</td>
                         <td className="py-2 px-3 text-zinc-500">{r.timestamp.split("T")[0]}</td>
-                        <td className="py-2 px-3 text-zinc-205 font-bold">{r.action_taken}</td>
+                        <td className="py-2 px-3 text-zinc-200 font-bold">{r.action_taken}</td>
                         <td className="py-2 px-3">{r.technician_id}</td>
                         <td className="py-2 px-3 text-emerald-400">{(r.health_snapshot * 100).toFixed(0)}%</td>
                       </tr>
@@ -781,6 +883,7 @@ interface SentinelGatewayProps {
   nodes: any[];
   ledgerHistory: LedgerRecord[];
   mounted: boolean;
+  lastHoveredPlaneId: string;
 }
 
 export function SentinelGateway({
@@ -819,10 +922,15 @@ export function SentinelGateway({
   handleManualAppend,
   nodes,
   ledgerHistory,
-  mounted
+  mounted,
+  lastHoveredPlaneId
 }: SentinelGatewayProps) {
   const parentPlaneId = Object.keys(planes).find(key => planes[key].engines.includes(selectedEngineId)) || "PL-101";
   const activeEngine = engines[selectedEngineId] || engines["ENG-001"];
+  const parentPlane = planes[parentPlaneId];
+  
+  // Ledger interlock landing check
+  const isPlaneAirborne = parentPlane ? parentPlane.status === "Airborne" : false;
 
   return (
     <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6 bg-zinc-950 text-zinc-100 select-none">
@@ -862,7 +970,7 @@ export function SentinelGateway({
           </div>
 
           <div className="flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md">
-            <Layers className="h-3 w-3 text-zinc-550" />
+            <Layers className="h-3 w-3 text-zinc-555" />
             <span>MMR LEAF PEAKS: {ledgerHistory.length}</span>
           </div>
         </div>
@@ -904,43 +1012,51 @@ export function SentinelGateway({
               <h2 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Propulsion Register</h2>
               
               <div className="space-y-3 font-mono text-xs">
-                {Object.values(engines).map((eng) => (
-                  <div
-                    key={eng.id}
-                    onClick={() => setSelectedEngineId(eng.id)}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                      selectedEngineId === eng.id 
-                        ? "bg-zinc-900/20 border-zinc-700 shadow-lg scale-[1.01]" 
-                        : "bg-zinc-900/5 border-zinc-900 hover:border-zinc-800"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <h3 className="font-bold text-zinc-250">{eng.id}</h3>
-                      <span className={`text-[10px] uppercase font-bold ${getStatusColor(eng.status)}`}>
-                        {eng.status}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-zinc-500 mt-1 font-sans">{eng.name}</p>
-                    
-                    <div className="mt-3.5 space-y-1.5">
-                      <div className="flex justify-between text-[10px] font-mono">
-                        <span className="text-zinc-550">WEAR INDEX</span>
-                        <span className="text-zinc-300">{(eng.health * 100).toFixed(0)}%</span>
+                {Object.values(engines).map((eng) => {
+                  const planeId = Object.keys(planes).find(key => planes[key].engines.includes(eng.id));
+                  const pl = planeId ? planes[planeId] : null;
+                  
+                  return (
+                    <div
+                      key={eng.id}
+                      onClick={() => setSelectedEngineId(eng.id)}
+                      className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                        selectedEngineId === eng.id 
+                          ? "bg-zinc-900/20 border-zinc-700 shadow-lg scale-[1.01]" 
+                          : "bg-zinc-900/5 border-zinc-900 hover:border-zinc-800"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between text-xs font-mono">
+                        <h3 className="font-bold text-zinc-250">{eng.id}</h3>
+                        <span className={`text-[10px] uppercase font-bold ${getStatusColor(eng.status)}`}>
+                          {eng.status}
+                        </span>
                       </div>
-                      <div className="h-1 w-full bg-zinc-900/40 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full transition-all duration-550 ${getHealthBarColor(eng.health)}`}
-                          style={{ width: `${eng.health * 100}%` }}
-                        />
+                      <div className="flex justify-between items-center mt-1">
+                        <p className="text-[10px] text-zinc-500 font-sans">{eng.name}</p>
+                        {pl && <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${pl.status === "Airborne" ? "bg-emerald-500/10 text-emerald-400" : "bg-zinc-900 text-zinc-500"}`}>{pl.status}</span>}
                       </div>
-                    </div>
+                      
+                      <div className="mt-3.5 space-y-1.5">
+                        <div className="flex justify-between text-[10px] font-mono">
+                          <span className="text-zinc-550">WEAR INDEX</span>
+                          <span className="text-zinc-300">{(eng.health * 100).toFixed(0)}%</span>
+                        </div>
+                        <div className="h-1 w-full bg-zinc-900/40 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full transition-all duration-550 ${getHealthBarColor(eng.health)}`}
+                            style={{ width: `${eng.health * 100}%` }}
+                          />
+                        </div>
+                      </div>
 
-                    <div className="mt-3.5 flex items-center justify-between border-t border-zinc-900/80 pt-3 text-[10px] font-mono text-zinc-550">
-                      <span>CYCLES: <strong className="text-zinc-350">{eng.cycle}</strong></span>
-                      <span>RUL: <strong className="text-zinc-355">{eng.rul} CYC</strong></span>
+                      <div className="mt-3.5 flex items-center justify-between border-t border-zinc-900/80 pt-3 text-[10px] font-mono text-zinc-550">
+                        <span>CYCLES: <strong className="text-zinc-350">{eng.cycle}</strong></span>
+                        <span>RUL: <strong className="text-zinc-355">{eng.rul} CYC</strong></span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Jet engine sensor diagram mapping */}
@@ -948,7 +1064,7 @@ export function SentinelGateway({
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Sensor Mapping Blueprint</h3>
                   {hoveredSensor && (
-                    <span className="text-[9px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-zinc-450 uppercase">
+                    <span className="text-[9px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-zinc-400 uppercase">
                       {hoveredSensor}
                     </span>
                   )}
@@ -1006,7 +1122,7 @@ export function SentinelGateway({
                       <p className="text-zinc-500 font-sans mt-0.5 leading-normal">Sensor <strong>{SENSOR_METADATA[activeEngine.attribution[0].sensor]?.label}</strong> indicates highest heat stress factor.</p>
                     </div>
                   ) : (
-                    <div className="text-zinc-500 text-center font-sans">Hover blueprint nodes to diagnose engine wear.</div>
+                    <div className="text-zinc-550 text-center font-sans text-[10px]">Hover blueprint nodes to diagnose engine wear.</div>
                   )}
                 </div>
               </div>
@@ -1024,17 +1140,10 @@ export function SentinelGateway({
                   </div>
                   
                   <div className="flex items-center gap-3 text-[10px] font-mono">
-                    <div className="flex items-center space-x-1.5 bg-zinc-950 border border-zinc-900 px-2 py-0.5 rounded">
-                      <span className="text-zinc-555">STREAM:</span>
-                      <button 
-                        onClick={() => setIsStreaming(prev => !prev)} 
-                        disabled={!backendOnline}
-                        className={`px-1 rounded text-[9px] font-bold cursor-pointer ${isStreaming ? "bg-red-500/20 text-red-400" : "bg-emerald-500/20 text-emerald-400"}`}
-                      >
-                        {isStreaming ? "PAUSE" : "START"}
-                      </button>
+                    <div className="flex items-center space-x-1.5 bg-zinc-950 border border-zinc-900 px-2 py-1.5 rounded">
+                      <span className="text-zinc-500 uppercase font-bold text-[9px]">REAL-TIME REFRESH ACTIVE</span>
                     </div>
-                    <button onClick={() => streamNextCycle(activeEngine.id)} disabled={isInferring || isStreaming || !backendOnline} className="flex items-center space-x-1 bg-zinc-150 hover:bg-white text-zinc-950 font-bold py-1 px-3.5 rounded transition-all cursor-pointer">
+                    <button onClick={() => streamNextCycle(activeEngine.id)} disabled={isInferring || !backendOnline} className="flex items-center space-x-1 bg-zinc-150 hover:bg-white text-zinc-950 font-bold py-1 px-3.5 rounded transition-all cursor-pointer">
                       <span>STEP FLIGHT CYCLE</span>
                     </button>
                   </div>
@@ -1049,7 +1158,7 @@ export function SentinelGateway({
                         <YAxis yAxisId="left" stroke="#a1a1aa" fontSize={8} fontFamily="monospace" />
                         <YAxis yAxisId="right" orientation="right" stroke="#52525b" fontSize={8} fontFamily="monospace" />
                         <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#18181b", color: "#f4f4f5", fontFamily: "monospace", fontSize: 8 }} />
-                        <Line yAxisId="left" type="monotone" dataKey="rul" name="RUL" stroke="#f4f4f5" strokeWidth={1.5} dot={{ r: 1 }} />
+                        <Line yAxisId="left" type="monotone" dataKey="rul" name="RUL" stroke="#10b981" strokeWidth={1.5} dot={{ r: 1 }} />
                         <Line yAxisId="right" type="monotone" dataKey="sensor_11" name="LPC Temp" stroke="#71717a" strokeWidth={1} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
@@ -1099,7 +1208,7 @@ export function SentinelGateway({
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-zinc-950/20 border border-dashed border-zinc-900 rounded-lg p-6 text-center text-xs font-mono text-zinc-600">No explainable metrics compiled. Advance flight cycles or enable streaming.</div>
+                  <div className="bg-zinc-950/20 border border-dashed border-zinc-900 rounded-lg p-6 text-center text-xs font-mono text-zinc-600">No explainable metrics compiled. Streaming real-time telemetry updates.</div>
                 )}
               </div>
 
@@ -1137,49 +1246,60 @@ export function SentinelGateway({
                 
                 <div className="text-[9px] font-mono border border-zinc-900 bg-zinc-950/40 p-2 rounded flex justify-between">
                   <span className="text-zinc-550 font-bold">ROOT SEAL:</span>
-                  <span className="text-zinc-350 truncate max-w-[130px]">{rootHash || "EMPTY"}</span>
+                  <span className="text-zinc-355 truncate max-w-[130px]">{rootHash || "EMPTY"}</span>
                 </div>
               </div>
 
-              {/* Maintenance Form panel */}
+              {/* Maintenance Form panel (Ledger Commit Interlock Enabled) */}
               <div className="md:col-span-2 bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4">
                 <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 text-left">Append Certified Maintenance Entry</h3>
                 
-                <form onSubmit={handleManualAppend} className="grid grid-cols-2 gap-4 font-mono text-[10px] text-left">
-                  <div>
-                    <label className="text-zinc-555 block text-[9px] mb-1">Component</label>
-                    <select value={formEngine} onChange={e => setFormEngine(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
-                      <option value="ENG-001">ENG-001 (Alpha)</option>
-                      <option value="ENG-002">ENG-002 (Bravo)</option>
-                      <option value="ENG-003">ENG-003 (Charlie)</option>
-                    </select>
+                {isPlaneAirborne ? (
+                  /* Block Form when plane is airborne */
+                  <div className="p-8 border border-red-900/30 bg-red-950/5 rounded-xl flex flex-col items-center justify-center space-y-3 text-center">
+                    <Lock className="h-8 w-8 text-red-500 animate-pulse" />
+                    <div>
+                      <h4 className="font-mono text-xs font-bold text-red-450 uppercase">Transaction Commit Interlock Engaged</h4>
+                      <p className="font-sans text-[11px] text-zinc-500 mt-1 max-w-sm">Certified ledger signing is blocked because the matching aircraft **({parentPlaneId})** is currently airborne. A landing check is required before maintenance logs can be committed.</p>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-zinc-555 block text-[9px] mb-1">Action</label>
-                    <select value={formAction} onChange={e => setFormAction(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
-                      <option value="Sensor Calibration">Sensor Calibration</option>
-                      <option value="Oil Lubrication Refill">Oil Lubrication Refill</option>
-                      <option value="Blade Replacement">Blade Replacement</option>
-                      <option value="Compressor Overhaul">Compressor Overhaul</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-zinc-555 block text-[9px] mb-1">Station ID</label>
-                    <select value={formStation} onChange={e => setFormStation(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
-                      <option value="STATION_001">STATION_001 (Mumbai)</option>
-                      <option value="STATION_002">STATION_002 (London)</option>
-                      <option value="STATION_003">STATION_003 (Seattle)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-zinc-555 block text-[9px] mb-1">Health Index (0.0 to 1.0)</label>
-                    <input type="text" value={formHealth} onChange={e => setFormHealth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-850 p-2 rounded text-zinc-300 outline-none font-mono" />
-                  </div>
-                  <div className="col-span-2 pt-1">
-                    {formSuccessMessage && <div className="p-2 bg-emerald-950/20 border border-emerald-500/20 text-emerald-400 text-[10px] rounded text-center mb-2">{formSuccessMessage}</div>}
-                    <button type="submit" className="w-full py-2 bg-zinc-150 hover:bg-white text-zinc-950 font-bold uppercase rounded transition-all cursor-pointer">Commit Ledger Transaction</button>
-                  </div>
-                </form>
+                ) : (
+                  <form onSubmit={handleManualAppend} className="grid grid-cols-2 gap-4 font-mono text-[10px] text-left">
+                    <div>
+                      <label className="text-zinc-555 block text-[9px] mb-1">Component</label>
+                      <select value={formEngine} onChange={e => setFormEngine(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
+                        <option value="ENG-001">ENG-001 (Alpha)</option>
+                        <option value="ENG-002">ENG-002 (Bravo)</option>
+                        <option value="ENG-003">ENG-003 (Charlie)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-zinc-555 block text-[9px] mb-1">Action</label>
+                      <select value={formAction} onChange={e => setFormAction(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
+                        <option value="Sensor Calibration">Sensor Calibration</option>
+                        <option value="Oil Lubrication Refill">Oil Lubrication Refill</option>
+                        <option value="Blade Replacement">Blade Replacement</option>
+                        <option value="Compressor Overhaul">Compressor Overhaul</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-zinc-555 block text-[9px] mb-1">Station ID</label>
+                      <select value={formStation} onChange={e => setFormStation(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
+                        <option value="STATION_001">STATION_001 (Mumbai)</option>
+                        <option value="STATION_002">STATION_002 (London)</option>
+                        <option value="STATION_003">STATION_003 (Seattle)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-zinc-555 block text-[9px] mb-1">Health Index (0.0 to 1.0)</label>
+                      <input type="text" value={formHealth} onChange={e => setFormHealth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-850 p-2 rounded text-zinc-350 outline-none" />
+                    </div>
+                    <div className="col-span-2 pt-1">
+                      {formSuccessMessage && <div className="p-2 bg-emerald-950/20 border border-emerald-500/20 text-emerald-400 text-[10px] rounded text-center mb-2">{formSuccessMessage}</div>}
+                      <button type="submit" className="w-full py-2 bg-zinc-150 hover:bg-white text-zinc-950 font-bold uppercase rounded transition-all cursor-pointer">Commit Ledger Transaction</button>
+                    </div>
+                  </form>
+                )}
               </div>
             </div>
 
@@ -1225,16 +1345,11 @@ export function SentinelGateway({
                   if (verificationResult.verified === false && verificationResult.tampered_indices) {
                     leaves.forEach((l: any, idx: number) => {
                       const rec = ledgerHistory[idx];
-                      if (rec && verificationResult.tampered_indices?.includes(rec.leaf_index)) {
-                        tamperedPos.add(l.pos);
-                      }
+                      if (rec && verificationResult.tampered_indices?.includes(rec.leaf_index)) tamperedPos.add(l.pos);
                     });
-                    
                     const byHeight = Object.values(mmrNodesMap).sort((a: any, b: any) => a.height - b.height);
                     byHeight.forEach((n: any) => {
-                      if (n.children && n.children.some((c: any) => tamperedPos.has(c))) {
-                        tamperedPos.add(n.pos);
-                      }
+                      if (n.children && n.children.some((c: any) => tamperedPos.has(c))) tamperedPos.add(n.pos);
                     });
                   }
                   
@@ -1264,7 +1379,7 @@ export function SentinelGateway({
                         return (
                           <g key={n.pos}>
                             <circle cx={n.x} cy={n.y} r={isLeafNode ? 5 : 4} className={nodeColor} strokeWidth="1.5" />
-                            <text x={n.x} y={n.y - 8} textAnchor="middle" className="font-mono text-[7px] fill-zinc-500">#{n.pos}</text>
+                            <text x={n.x} y={n.y - 8} textAnchor="middle" className="font-mono text-[7px] fill-zinc-550">#{n.pos}</text>
                           </g>
                         );
                       })}
