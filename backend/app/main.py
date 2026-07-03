@@ -13,8 +13,12 @@ async def lifespan(app: FastAPI):
     # Initialize SQLite schema
     init_db()
     # Try pre-initializing federated datasets if available
+    import asyncio
     try:
         federated.federated_simulator.initialize()
+        # Pre-connect local P2P stations during server start
+        for st in ["STATION_001", "STATION_002", "STATION_003"]:
+            asyncio.create_task(federated.station_client_loop(st))
     except Exception as e:
         print(f"Federated simulator pre-initialization postponed: {e}")
     yield

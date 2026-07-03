@@ -152,8 +152,8 @@ class FederatedSimulationState:
             if st not in connected_stations:
                 asyncio.create_task(station_client_loop(st))
                 
-        # 2. Wait up to 1.5 seconds for registration handshake
-        for _ in range(15):
+        # 2. Wait up to 3.0 seconds for registration handshake
+        for _ in range(30):
             if all(st in connected_stations for st in expected_stations):
                 break
             await asyncio.sleep(0.1)
