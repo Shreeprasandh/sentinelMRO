@@ -544,6 +544,20 @@ export default function Dashboard() {
                       phase: "Pre-Flight"
                     };
                   }
+                } else if (plane.status === "Maintenance") {
+                  let nextMaintTime = plane.progress + 1;
+                  if (nextMaintTime >= 10) { // 10 seconds auto-maintenance release
+                    triggerAutoMaintenanceOverhaul(primaryEngId);
+                    nextPlanes[id] = {
+                      ...plane,
+                      progress: 0
+                    };
+                  } else {
+                    nextPlanes[id] = {
+                      ...plane,
+                      progress: nextMaintTime
+                    };
+                  }
                 }
               });
               return nextPlanes;
@@ -621,13 +635,13 @@ export default function Dashboard() {
     init();
   }, []);
 
-  // V3: Auto-trigger Federated Calibration sync weight update every 45 seconds
+  // V3: Auto-trigger Federated Calibration sync weight update every 30 seconds
   useEffect(() => {
     if (!backendOnline) return;
     const interval = setInterval(() => {
       console.log("Triggering auto-federated synchronization round...");
       runFederatedRound();
-    }, 45000);
+    }, 30000);
     return () => clearInterval(interval);
   }, [backendOnline]);
 
@@ -1009,6 +1023,81 @@ export default function Dashboard() {
       console.warn("Inference request failed:", e);
     } finally {
       setIsInferring(false);
+    }
+  };
+
+  const triggerAutoMaintenanceOverhaul = async (engineId: string) => {
+    const timestamp = new Date().toISOString();
+    const action = "Auto-Overhaul Maintenance Release";
+    const tech = "AUTO-MRO-BOT";
+    const station = "STATION_001";
+    const health = 1.0;
+    const message = `${timestamp}|${engineId}|${action}|${tech}|${health}`;
+
+    try {
+      const signRes = await fetch(`${BACKEND_URL}/api/v1/ledger/sign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ station_id: station, message: message })
+      });
+      
+      if (signRes.ok) {
+        const { signature } = await signRes.json();
+        const appendRes = await fetch(`${BACKEND_URL}/api/v1/ledger/append`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Station-ID": station,
+            "X-Signature": signature
+          },
+          body: JSON.stringify({
+            component_id: engineId,
+            action_taken: action,
+            technician_id: tech,
+            health_snapshot: health,
+            timestamp: timestamp
+          })
+        });
+
+        if (appendRes.ok) {
+          fetchLedgerHistory();
+          // Update engine health state locally
+          setEngines(prev => {
+            const target = prev[engineId];
+            if (!target) return prev;
+            return {
+              ...prev,
+              [engineId]: {
+                ...target,
+                cycle: 1,
+                health: 1.0,
+                rul: 125,
+                status: "Nominal"
+              }
+            };
+          });
+          // Release maintenance hold on plane
+          setPlanes(prev => {
+            const nextPlanes = { ...prev };
+            const targetPlaneId = Object.keys(nextPlanes).find(key => nextPlanes[key].engines.includes(engineId));
+            if (targetPlaneId) {
+              const plane = nextPlanes[targetPlaneId];
+              nextPlanes[targetPlaneId] = {
+                ...plane,
+                status: "Ready",
+                phase: "Pre-Flight",
+                progress: 0,
+                altitude: 0,
+                speed: 0,
+                fuel: 100
+              };
+            }
+            return nextPlanes;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Failed automatic maintenance overhaul:", e);
     }
   };
 

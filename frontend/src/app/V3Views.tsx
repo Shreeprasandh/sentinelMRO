@@ -59,6 +59,9 @@ const getBezierCoordinates = (
 
 const getPlaneCoordinates = (plane: PlaneData) => {
   const p = plane.routeCoordinates;
+  if (plane.status !== "Airborne") {
+    return p[0];
+  }
   const t = plane.progress / 100;
   
   if (p.length === 3) {
@@ -118,7 +121,7 @@ export function LoginScreen({
     <div className="flex-1 flex items-center justify-center min-h-[85vh] p-4 bg-zinc-950 text-zinc-100 select-none">
       <div className="w-full max-w-sm p-8 bg-zinc-900/10 border border-zinc-900 rounded-lg shadow-2xl space-y-6">
         <div>
-          <span className="text-[10px] font-mono text-zinc-550 tracking-[0.3em] block">SECURE CREDENTIAL CHECK</span>
+          <span className="text-[10px] font-mono text-zinc-500 tracking-[0.3em] block">SECURE CREDENTIAL CHECK</span>
           <h1 className="text-xl font-bold tracking-wider text-zinc-100 uppercase font-sans text-left">SENTINEL<span className="text-zinc-500 font-light font-sans">MRO</span></h1>
         </div>
         {loginError && (
@@ -128,28 +131,28 @@ export function LoginScreen({
         )}
         <form onSubmit={onSubmit} className="space-y-4 text-left">
           <div className="space-y-1">
-            <label className="text-[9px] font-mono text-zinc-550 uppercase">Technician ID / PubKey</label>
+            <label className="text-[9px] font-mono text-zinc-500 uppercase">Technician ID / PubKey</label>
             <input 
               type="text" 
               value={loginTechId} 
               onChange={e => setLoginTechId(e.target.value)} 
-              className="w-full bg-zinc-950 border border-zinc-850 px-3 py-2 text-zinc-200 text-xs font-mono rounded outline-none focus:border-zinc-700" 
+              className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-zinc-200 text-xs font-mono rounded outline-none focus:border-zinc-700" 
             />
           </div>
           <div className="space-y-1">
-            <label className="text-[9px] font-mono text-zinc-555 uppercase">Access Clearance PIN</label>
+            <label className="text-[9px] font-mono text-zinc-500 uppercase">Access Clearance PIN</label>
             <input 
               type="password" 
               value={loginPin} 
               onChange={e => setLoginPin(e.target.value)} 
-              className="w-full bg-zinc-950 border border-zinc-850 px-3 py-2 text-zinc-200 text-xs font-mono rounded text-center outline-none focus:border-zinc-700" 
+              className="w-full bg-zinc-950 border border-zinc-800 px-3 py-2 text-zinc-200 text-xs font-mono rounded text-center outline-none focus:border-zinc-700" 
             />
           </div>
           <button type="submit" className="w-full py-2 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-mono font-bold uppercase rounded cursor-pointer transition-all active:scale-[0.98]">
             Authorize Node
           </button>
         </form>
-        <div className="text-[9px] font-mono text-zinc-555 border-t border-zinc-900 pt-4 flex justify-between">
+        <div className="text-[9px] font-mono text-zinc-500 border-t border-zinc-900 pt-4 flex justify-between">
           <span>KEY: ed25519-pub-admin-948</span>
           <span>PIN: 7700</span>
         </div>
@@ -218,7 +221,7 @@ export function HangarSelector({
               <h3 className="font-bold text-zinc-200 text-sm font-sans">{h.name}</h3>
               <p className="text-[11px] text-zinc-500 font-mono mt-1">HUB CODE: {h.loc} | {h.temp}</p>
             </div>
-            <div className="text-[9px] font-mono text-zinc-650 border-t border-zinc-900/60 pt-3">
+            <div className="text-[9px] font-mono text-zinc-600 border-t border-zinc-900/60 pt-3">
               PASS: {h.hint}
             </div>
           </div>
@@ -235,16 +238,16 @@ export function HangarSelector({
             {hangarAccessError && <div className="p-2 bg-red-950/20 border border-red-500/20 text-red-400 text-[10px] font-mono rounded text-center">{hangarAccessError}</div>}
             <div className="space-y-3 font-mono text-[11px]">
               <div>
-                <label className="text-zinc-550 block text-[9px] mb-1">Station Access ID</label>
+                <label className="text-zinc-500 block text-[9px] mb-1">Station Access ID</label>
                 <input type="text" value={hangarAccessKey} disabled className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-400 cursor-not-allowed" />
               </div>
               <div>
-                <label className="text-zinc-550 block text-[9px] mb-1">Hangar Passphrase</label>
-                <input type="password" value={hangarAccessPin} onChange={e => setHangarAccessPin(e.target.value)} placeholder="••••••••" className="w-full bg-zinc-900 border border-zinc-850 p-2 rounded text-zinc-100 outline-none focus:border-zinc-700 font-mono tracking-widest text-center" />
+                <label className="text-zinc-500 block text-[9px] mb-1">Hangar Passphrase</label>
+                <input type="password" value={hangarAccessPin} onChange={e => setHangarAccessPin(e.target.value)} placeholder="••••••••" className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-100 outline-none focus:border-zinc-700 font-mono tracking-widest text-center" />
               </div>
             </div>
             <div className="flex space-x-3 text-xs font-mono">
-              <button onClick={() => setIsHangarModalOpen(false)} className="flex-1 py-2 border border-zinc-850 hover:border-zinc-750 text-zinc-455 rounded cursor-pointer">Cancel</button>
+              <button onClick={() => setIsHangarModalOpen(false)} className="flex-1 py-2 border border-zinc-800 hover:border-zinc-750 text-zinc-400 rounded cursor-pointer">Cancel</button>
               <button 
                 onClick={() => {
                   const verified = 
@@ -328,7 +331,7 @@ export function HangarDashboard({
       {/* Header */}
       <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-900 pb-5 gap-4">
         <div className="space-y-1">
-          <span className="text-[9px] font-mono text-zinc-555 uppercase tracking-[0.25em] block text-left">
+          <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.25em] block text-left">
             Global Hangar Control Terminal
           </span>
           <h1 className="text-xl font-bold tracking-wider text-zinc-100 uppercase font-mono text-left">
@@ -344,7 +347,7 @@ export function HangarDashboard({
               setViewState("hangar-select");
               setSelectedHangar(null);
             }} 
-            className="border border-zinc-800 hover:border-zinc-650 px-3 py-1 rounded text-zinc-305 font-bold transition-all cursor-pointer bg-zinc-900/10"
+            className="border border-zinc-800 hover:border-zinc-600 px-3 py-1 rounded text-zinc-300 font-bold transition-all cursor-pointer bg-zinc-900/10"
           >
             DISCONNECT NODE
           </button>
@@ -358,23 +361,23 @@ export function HangarDashboard({
           {/* Station Environmental info */}
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-              <Server className="h-4 w-4 text-zinc-550" />
+              <Server className="h-4 w-4 text-zinc-500" />
               <span>Station Environmental Telemetry</span>
             </h3>
             <div className="grid grid-cols-3 gap-2 text-center text-xs font-mono py-2">
               <div className="p-2.5 bg-zinc-950 border border-zinc-900/60 rounded-md">
-                <Thermometer className="h-4 w-4 mx-auto mb-1 text-zinc-550" />
-                <span className="text-[9px] text-zinc-550 block">TEMP</span>
+                <Thermometer className="h-4 w-4 mx-auto mb-1 text-zinc-500" />
+                <span className="text-[9px] text-zinc-500 block">TEMP</span>
                 <strong className="text-zinc-200">{selectedHangar === "hangar-01" ? "31°C" : selectedHangar === "hangar-02" ? "18°C" : "15°C"}</strong>
               </div>
               <div className="p-2.5 bg-zinc-950 border border-zinc-900/60 rounded-md">
-                <Droplets className="h-4 w-4 mx-auto mb-1 text-zinc-550" />
-                <span className="text-[9px] text-zinc-550 block">HUMID</span>
+                <Droplets className="h-4 w-4 mx-auto mb-1 text-zinc-500" />
+                <span className="text-[9px] text-zinc-500 block">HUMID</span>
                 <strong className="text-zinc-200">{selectedHangar === "hangar-01" ? "82%" : selectedHangar === "hangar-02" ? "65%" : "50%"}</strong>
               </div>
               <div className="p-2.5 bg-zinc-950 border border-zinc-900/60 rounded-md">
-                <Wind className="h-4 w-4 mx-auto mb-1 text-zinc-550" />
-                <span className="text-[9px] text-zinc-550 block">WIND</span>
+                <Wind className="h-4 w-4 mx-auto mb-1 text-zinc-500" />
+                <span className="text-[9px] text-zinc-500 block">WIND</span>
                 <strong className="text-zinc-200">12 kt</strong>
               </div>
             </div>
@@ -383,7 +386,7 @@ export function HangarDashboard({
           {/* Scrollable Hangar Catalog List */}
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-              <Compass className="h-4 w-4 text-zinc-550" />
+              <Compass className="h-4 w-4 text-zinc-500" />
               <span>Active Hangar Catalog</span>
             </h3>
             
@@ -413,7 +416,7 @@ export function HangarDashboard({
                   >
                     <div className="space-y-1">
                       <div className="flex items-center space-x-2">
-                        <Plane className={`h-3 w-3 ${p.status === "Airborne" ? "text-emerald-450" : isCrit ? "text-red-500 animate-pulse" : p.status === "Ready" ? "text-zinc-400" : "text-amber-500"}`} />
+                        <Plane className={`h-3 w-3 ${p.status === "Airborne" ? "text-emerald-400" : isCrit ? "text-red-500 animate-pulse" : p.status === "Ready" ? "text-zinc-400" : "text-amber-500"}`} />
                         <span className="font-bold text-zinc-200">{p.id}</span>
                       </div>
                       <span className="text-[10px] text-zinc-500 block">{p.origin} ➔ {p.destination}</span>
@@ -497,7 +500,7 @@ export function HangarDashboard({
                   return (
                     <g key={key}>
                       {isLocal && <circle cx={hub.x} cy={hub.y} r="12" className="fill-emerald-500/5 stroke-emerald-500/20 animate-pulse" strokeWidth="1" />}
-                      {isRouteEnd && <circle cx={hub.x} cy={hub.y} r="8" className="fill-none stroke-emerald-400/40 animate-ping" strokeWidth="1" />}
+                      {isRouteEnd && <circle cx={hub.x} cy={hub.y} r="8" className="fill-none stroke-emerald-400/40 animate-pulse" strokeWidth="1.5" />}
                       <circle cx={hub.x} cy={hub.y} r="4.5" className={isLocal ? "fill-emerald-400" : isRouteEnd ? "fill-emerald-500/80" : "fill-zinc-600"} />
                       
                       {/* Double render text labels for white high-contrast outlines */}
@@ -538,7 +541,7 @@ export function HangarDashboard({
                       
                       {/* High contrast labels */}
                       <text x={coords.x + 8} y={coords.y + 3} className="font-mono text-[8px] font-bold fill-none stroke-zinc-950 stroke-[2.5px] select-none">{p.id}</text>
-                      <text x={coords.x + 8} y={coords.y + 3} className={`font-mono text-[8px] font-bold select-none ${isHovered ? "fill-emerald-350" : "fill-zinc-200"}`}>{p.id}</text>
+                      <text x={coords.x + 8} y={coords.y + 3} className={`font-mono text-[8px] font-bold select-none ${isHovered ? "fill-emerald-300" : "fill-zinc-200"}`}>{p.id}</text>
                     </g>
                   );
                 })}
@@ -549,19 +552,19 @@ export function HangarDashboard({
             <div className="bg-zinc-950/80 border border-zinc-900 p-4 rounded-lg text-xs font-mono min-h-[68px] flex items-center justify-center relative">
               <div className="w-full grid grid-cols-2 md:grid-cols-4 gap-4 text-left">
                 <div>
-                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">AIRCRAFT ID</span>
+                  <span className="text-[9px] text-zinc-500 block uppercase tracking-wider">AIRCRAFT ID</span>
                   <strong className="text-zinc-200 font-mono text-[11px] block truncate">{activeHudPlane.name}</strong>
                 </div>
                 <div>
-                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">FLIGHT ROUTE</span>
+                  <span className="text-[9px] text-zinc-500 block uppercase tracking-wider">FLIGHT ROUTE</span>
                   <strong className="text-zinc-300 font-mono text-[11px] block">{activeHudPlane.origin} ➔ {activeHudPlane.destination} ({activeHudPlane.phase})</strong>
                 </div>
                 <div>
-                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">ALTITUDE & AIRSPEED</span>
+                  <span className="text-[9px] text-zinc-500 block uppercase tracking-wider">ALTITUDE & AIRSPEED</span>
                   <strong className="text-zinc-300 font-mono text-[11px] block">{activeHudPlane.altitude} ft / {activeHudPlane.speed} kt</strong>
                 </div>
                 <div>
-                  <span className="text-[9px] text-zinc-550 block uppercase tracking-wider">PROPULSION HEALTH</span>
+                  <span className="text-[9px] text-zinc-500 block uppercase tracking-wider">PROPULSION HEALTH</span>
                   <strong className={`font-mono text-[11px] block uppercase ${primaryHudEng?.health < 0.35 ? "text-red-400 animate-pulse" : primaryHudEng?.health < 0.75 ? "text-amber-400" : "text-emerald-400"}`}>
                     {hudHealthPct}% (RUL: {hudRul} CYC)
                   </strong>
@@ -574,10 +577,10 @@ export function HangarDashboard({
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-6 text-left">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
               <div className="space-y-1">
-                <span className="text-[10px] font-mono text-zinc-555 uppercase tracking-widest block">
-                  Autonomic Parameter Synchronization (Every 45s)
+                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block">
+                  Autonomic Parameter Synchronization (Every 30s)
                 </span>
-                <h4 className="text-sm font-bold text-zinc-250 uppercase flex items-center space-x-2 font-mono">
+                <h4 className="text-sm font-bold text-zinc-200 uppercase flex items-center space-x-2 font-mono">
                   <Shield className="h-4 w-4 text-zinc-500" />
                   <span>Station Federated Training Consolidator</span>
                 </h4>
@@ -607,7 +610,7 @@ export function HangarDashboard({
                     <span className="text-zinc-500">SEATTLE_STN3</span>
                     <span className="text-emerald-400 font-bold">Loss: 0.021</span>
                   </div>
-                  <div className="border-t border-zinc-900/60 pt-2 flex justify-between text-[9px] text-zinc-550">
+                  <div className="border-t border-zinc-900/60 pt-2 flex justify-between text-[9px] text-zinc-500">
                     <span>DP GRADIENTS:</span>
                     <span>LAPLACE ACTIVE</span>
                   </div>
@@ -616,7 +619,7 @@ export function HangarDashboard({
 
               {/* Training Convergence Plot (displays the last 10 rounds) */}
               <div className="md:col-span-2 space-y-2">
-                <span className="font-mono text-[10px] text-zinc-555 uppercase tracking-wider block text-left">Convergence log (Last 10 updates)</span>
+                <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider block text-left">Convergence log (Last 10 updates)</span>
                 <div className="h-44 w-full bg-zinc-950/40 p-2 border border-zinc-900 rounded-lg">
                   {mounted && federatedHistory.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
@@ -629,7 +632,7 @@ export function HangarDashboard({
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="h-full w-full flex items-center justify-center font-mono text-zinc-650 text-[10px]">
+                    <div className="h-full w-full flex items-center justify-center font-mono text-zinc-600 text-[10px]">
                       No calibration cycles executed. Streaming automatic weights.
                     </div>
                   )}
@@ -736,7 +739,7 @@ export function AssetDetail({
           </button>
         </div>
         
-        <h2 className="text-sm font-bold text-zinc-150 font-mono uppercase">
+        <h2 className="text-sm font-bold text-zinc-100 font-mono uppercase">
           AIRCRAFT DOSSIER: {plane.id}
         </h2>
       </header>
@@ -749,13 +752,13 @@ export function AssetDetail({
           <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Specifications Catalog</h3>
             <div className="space-y-3 font-mono text-[11px]">
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-550">MODEL ID:</span><span className="text-zinc-250 font-bold">{plane.model}</span></div>
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">CURRENT ROUTE:</span><span className="text-zinc-250">{plane.origin} ➔ {plane.destination}</span></div>
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">FLIGHT STATUS:</span><span className="text-zinc-250 uppercase font-bold">{plane.status}</span></div>
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">FLIGHT PHASE:</span><span className="text-zinc-250">{plane.phase}</span></div>
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">AIRSPEED:</span><span className="text-zinc-250">{plane.speed} kt</span></div>
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">ALTITUDE:</span><span className="text-zinc-250">{plane.altitude} ft</span></div>
-              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-555">FUEL CAPACITY:</span><span className="text-zinc-250">{plane.fuel}%</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">MODEL ID:</span><span className="text-zinc-200 font-bold">{plane.model}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">CURRENT ROUTE:</span><span className="text-zinc-200">{plane.origin} ➔ {plane.destination}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">FLIGHT STATUS:</span><span className="text-zinc-200 uppercase font-bold">{plane.status}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">FLIGHT PHASE:</span><span className="text-zinc-200">{plane.phase}</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">AIRSPEED:</span><span className="text-zinc-200">{plane.speed} kt</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">ALTITUDE:</span><span className="text-zinc-200">{plane.altitude} ft</span></div>
+              <div className="flex justify-between border-b border-zinc-900/60 pb-2"><span className="text-zinc-500">FUEL CAPACITY:</span><span className="text-zinc-200">{plane.fuel}%</span></div>
             </div>
           </div>
 
@@ -782,7 +785,7 @@ export function AssetDetail({
               <div className="flex justify-between items-center font-mono text-xs">
                 <div>
                   <h4 className="font-bold text-zinc-200">{primaryEngineId}</h4>
-                  <span className="text-[10px] text-zinc-550">TCN Prognostics Diagnostics Matrix</span>
+                  <span className="text-[10px] text-zinc-500">TCN Prognostics Diagnostics Matrix</span>
                 </div>
                 <span className={`text-[10px] uppercase font-bold ${engine?.status === "Nominal" ? "text-emerald-400" : engine?.status === "Warning" ? "text-amber-500" : "text-red-400 animate-pulse"}`}>
                   {engine?.status || "Nominal"}
@@ -811,7 +814,7 @@ export function AssetDetail({
             <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Cryptographic MRO Audit Records</h3>
             <div className="overflow-x-auto border border-zinc-900/80 rounded-lg">
               <table className="w-full text-left font-mono text-[10px] text-zinc-400 select-text">
-                <thead className="bg-zinc-950 text-zinc-555 uppercase">
+                <thead className="bg-zinc-950 text-zinc-500 uppercase">
                   <tr>
                     <th className="py-2.5 px-3">LEAF</th>
                     <th className="py-2.5 px-3">TIMESTAMP</th>
@@ -832,7 +835,7 @@ export function AssetDetail({
                       </tr>
                     ))
                   ) : (
-                    <tr><td colSpan={5} className="py-6 text-center text-zinc-650">NO CRYPTOGRAPHIC LOGS ON FILE FOR COMPONENT.</td></tr>
+                    <tr><td colSpan={5} className="py-6 text-center text-zinc-600">NO CRYPTOGRAPHIC LOGS ON FILE FOR COMPONENT.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -952,13 +955,13 @@ export function SentinelGateway({
               setViewState("asset-detail");
               setSelectedPlaneId(parentPlaneId);
             }} 
-            className="flex items-center space-x-2 border border-zinc-850 hover:border-zinc-700 px-3 py-1.5 rounded font-mono text-xs text-zinc-400 cursor-pointer bg-zinc-900/10"
+            className="flex items-center space-x-2 border border-zinc-800 hover:border-zinc-700 px-3 py-1.5 rounded font-mono text-xs text-zinc-400 cursor-pointer bg-zinc-900/10"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
             <span>AIRCRAFT FILE</span>
           </button>
           <div className="space-y-0.5">
-            <span className="text-[9px] font-mono text-zinc-555 block">SENTINELMRO DIAGNOSTICS ENCLAVE</span>
+            <span className="text-[9px] font-mono text-zinc-500 block">SENTINELMRO DIAGNOSTICS ENCLAVE</span>
             <h2 className="text-base font-bold text-zinc-200 font-mono uppercase">{selectedEngineId} // SECURE SHELL</h2>
           </div>
         </div>
@@ -970,7 +973,7 @@ export function SentinelGateway({
           </div>
 
           <div className="flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md">
-            <Layers className="h-3 w-3 text-zinc-555" />
+            <Layers className="h-3 w-3 text-zinc-500" />
             <span>MMR LEAF PEAKS: {ledgerHistory.length}</span>
           </div>
         </div>
@@ -983,7 +986,7 @@ export function SentinelGateway({
           className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
             activeTab === "fleet" 
               ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
-              : "border-transparent text-zinc-555 hover:text-zinc-300"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
           01 / Propulsion Telemetry
@@ -993,7 +996,7 @@ export function SentinelGateway({
           className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
             activeTab === "ledger" 
               ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
-              : "border-transparent text-zinc-555 hover:text-zinc-300"
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
           02 / MMR Audit Ledger
@@ -1027,7 +1030,7 @@ export function SentinelGateway({
                       }`}
                     >
                       <div className="flex items-center justify-between text-xs font-mono">
-                        <h3 className="font-bold text-zinc-250">{eng.id}</h3>
+                        <h3 className="font-bold text-zinc-200">{eng.id}</h3>
                         <span className={`text-[10px] uppercase font-bold ${getStatusColor(eng.status)}`}>
                           {eng.status}
                         </span>
@@ -1039,7 +1042,7 @@ export function SentinelGateway({
                       
                       <div className="mt-3.5 space-y-1.5">
                         <div className="flex justify-between text-[10px] font-mono">
-                          <span className="text-zinc-550">WEAR INDEX</span>
+                          <span className="text-zinc-500">WEAR INDEX</span>
                           <span className="text-zinc-300">{(eng.health * 100).toFixed(0)}%</span>
                         </div>
                         <div className="h-1 w-full bg-zinc-900/40 rounded-full overflow-hidden">
@@ -1050,9 +1053,9 @@ export function SentinelGateway({
                         </div>
                       </div>
 
-                      <div className="mt-3.5 flex items-center justify-between border-t border-zinc-900/80 pt-3 text-[10px] font-mono text-zinc-550">
-                        <span>CYCLES: <strong className="text-zinc-350">{eng.cycle}</strong></span>
-                        <span>RUL: <strong className="text-zinc-355">{eng.rul} CYC</strong></span>
+                      <div className="mt-3.5 flex items-center justify-between border-t border-zinc-900/80 pt-3 text-[10px] font-mono text-zinc-500">
+                        <span>CYCLES: <strong className="text-zinc-300">{eng.cycle}</strong></span>
+                        <span>RUL: <strong className="text-zinc-300">{eng.rul} CYC</strong></span>
                       </div>
                     </div>
                   );
@@ -1113,7 +1116,7 @@ export function SentinelGateway({
                 <div className="bg-zinc-950/45 border border-zinc-900/60 p-3 rounded text-[10px] font-mono min-h-[58px] flex flex-col justify-center text-left">
                   {hoveredSensor ? (
                     <div>
-                      <div className="flex justify-between font-bold text-zinc-350"><span>{hoveredSensor.toUpperCase()} - {SENSOR_METADATA[hoveredSensor]?.label}</span><span>ATTRIB: {activeEngine?.attribution?.find(a => a.sensor === hoveredSensor)?.percentage.toFixed(1) ?? "0.0"}%</span></div>
+                      <div className="flex justify-between font-bold text-zinc-300"><span>{hoveredSensor.toUpperCase()} - {SENSOR_METADATA[hoveredSensor]?.label}</span><span>ATTRIB: {activeEngine?.attribution?.find(a => a.sensor === hoveredSensor)?.percentage.toFixed(1) ?? "0.0"}%</span></div>
                       <p className="text-zinc-500 font-sans mt-0.5 leading-normal">{SENSOR_METADATA[hoveredSensor]?.desc}</p>
                     </div>
                   ) : activeEngine?.attribution && activeEngine.attribution.length > 0 ? (
@@ -1122,7 +1125,7 @@ export function SentinelGateway({
                       <p className="text-zinc-500 font-sans mt-0.5 leading-normal">Sensor <strong>{SENSOR_METADATA[activeEngine.attribution[0].sensor]?.label}</strong> indicates highest heat stress factor.</p>
                     </div>
                   ) : (
-                    <div className="text-zinc-550 text-center font-sans text-[10px]">Hover blueprint nodes to diagnose engine wear.</div>
+                    <div className="text-zinc-500 text-center font-sans text-[10px]">Hover blueprint nodes to diagnose engine wear.</div>
                   )}
                 </div>
               </div>
@@ -1135,7 +1138,7 @@ export function SentinelGateway({
               <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div className="space-y-0.5 text-left">
-                    <span className="text-[9px] font-mono text-zinc-555 block">Telemetry diagnostics console</span>
+                    <span className="text-[9px] font-mono text-zinc-500 block">Telemetry diagnostics console</span>
                     <h3 className="text-sm font-bold text-zinc-200 uppercase font-mono">Live Prognostics Curve Visualizer</h3>
                   </div>
                   
@@ -1143,7 +1146,7 @@ export function SentinelGateway({
                     <div className="flex items-center space-x-1.5 bg-zinc-950 border border-zinc-900 px-2 py-1.5 rounded">
                       <span className="text-zinc-500 uppercase font-bold text-[9px]">REAL-TIME REFRESH ACTIVE</span>
                     </div>
-                    <button onClick={() => streamNextCycle(activeEngine.id)} disabled={isInferring || !backendOnline} className="flex items-center space-x-1 bg-zinc-150 hover:bg-white text-zinc-950 font-bold py-1 px-3.5 rounded transition-all cursor-pointer">
+                    <button onClick={() => streamNextCycle(activeEngine.id)} disabled={isInferring || !backendOnline} className="flex items-center space-x-1 bg-zinc-100 hover:bg-white text-zinc-950 font-bold py-1 px-3.5 rounded transition-all cursor-pointer">
                       <span>STEP FLIGHT CYCLE</span>
                     </button>
                   </div>
@@ -1169,7 +1172,7 @@ export function SentinelGateway({
               {/* Explainable AI attribution */}
               <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 space-y-4 text-left">
                 <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                  <Cpu className="h-4 w-4 text-zinc-555" />
+                  <Cpu className="h-4 w-4 text-zinc-500" />
                   <span>Explainable AI (XAI) Diagnostics: Integrated Gradients</span>
                 </h3>
 
@@ -1186,7 +1189,7 @@ export function SentinelGateway({
                                 <span className={isTop ? "text-red-400 font-bold" : "text-zinc-400"}>{item.percentage.toFixed(1)}%</span>
                               </div>
                               <div className="w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
-                                <div className={`h-full ${isTop ? "bg-red-500" : "bg-zinc-650"}`} style={{ width: `${item.percentage}%` }}></div>
+                                <div className={`h-full ${isTop ? "bg-red-500" : "bg-zinc-600"}`} style={{ width: `${item.percentage}%` }}></div>
                               </div>
                             </div>
                           );
@@ -1196,7 +1199,7 @@ export function SentinelGateway({
                         {activeEngine.attribution.slice(7).map((item) => (
                           <div key={item.sensor} className="space-y-1">
                             <div className="flex justify-between text-[9px]">
-                              <span className="text-zinc-550">{item.sensor.toUpperCase()} ({SENSOR_METADATA[item.sensor]?.label})</span>
+                              <span className="text-zinc-500">{item.sensor.toUpperCase()} ({SENSOR_METADATA[item.sensor]?.label})</span>
                               <span className="text-zinc-400">{item.percentage.toFixed(1)}%</span>
                             </div>
                             <div className="w-full bg-zinc-950 h-1 rounded-full overflow-hidden">
@@ -1245,8 +1248,8 @@ export function SentinelGateway({
                 )}
                 
                 <div className="text-[9px] font-mono border border-zinc-900 bg-zinc-950/40 p-2 rounded flex justify-between">
-                  <span className="text-zinc-550 font-bold">ROOT SEAL:</span>
-                  <span className="text-zinc-355 truncate max-w-[130px]">{rootHash || "EMPTY"}</span>
+                  <span className="text-zinc-500 font-bold">ROOT SEAL:</span>
+                  <span className="text-zinc-300 truncate max-w-[130px]">{rootHash || "EMPTY"}</span>
                 </div>
               </div>
 
@@ -1259,14 +1262,14 @@ export function SentinelGateway({
                   <div className="p-8 border border-red-900/30 bg-red-950/5 rounded-xl flex flex-col items-center justify-center space-y-3 text-center">
                     <Lock className="h-8 w-8 text-red-500 animate-pulse" />
                     <div>
-                      <h4 className="font-mono text-xs font-bold text-red-450 uppercase">Transaction Commit Interlock Engaged</h4>
+                      <h4 className="font-mono text-xs font-bold text-red-400 uppercase">Transaction Commit Interlock Engaged</h4>
                       <p className="font-sans text-[11px] text-zinc-500 mt-1 max-w-sm">Certified ledger signing is blocked because the matching aircraft **({parentPlaneId})** is currently airborne. A landing check is required before maintenance logs can be committed.</p>
                     </div>
                   </div>
                 ) : (
                   <form onSubmit={handleManualAppend} className="grid grid-cols-2 gap-4 font-mono text-[10px] text-left">
                     <div>
-                      <label className="text-zinc-555 block text-[9px] mb-1">Component</label>
+                      <label className="text-zinc-500 block text-[9px] mb-1">Component</label>
                       <select value={formEngine} onChange={e => setFormEngine(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
                         <option value="ENG-001">ENG-001 (Alpha)</option>
                         <option value="ENG-002">ENG-002 (Bravo)</option>
@@ -1274,7 +1277,7 @@ export function SentinelGateway({
                       </select>
                     </div>
                     <div>
-                      <label className="text-zinc-555 block text-[9px] mb-1">Action</label>
+                      <label className="text-zinc-500 block text-[9px] mb-1">Action</label>
                       <select value={formAction} onChange={e => setFormAction(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
                         <option value="Sensor Calibration">Sensor Calibration</option>
                         <option value="Oil Lubrication Refill">Oil Lubrication Refill</option>
@@ -1283,7 +1286,7 @@ export function SentinelGateway({
                       </select>
                     </div>
                     <div>
-                      <label className="text-zinc-555 block text-[9px] mb-1">Station ID</label>
+                      <label className="text-zinc-500 block text-[9px] mb-1">Station ID</label>
                       <select value={formStation} onChange={e => setFormStation(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none">
                         <option value="STATION_001">STATION_001 (Mumbai)</option>
                         <option value="STATION_002">STATION_002 (London)</option>
@@ -1291,12 +1294,12 @@ export function SentinelGateway({
                       </select>
                     </div>
                     <div>
-                      <label className="text-zinc-555 block text-[9px] mb-1">Health Index (0.0 to 1.0)</label>
-                      <input type="text" value={formHealth} onChange={e => setFormHealth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-850 p-2 rounded text-zinc-350 outline-none" />
+                      <label className="text-zinc-500 block text-[9px] mb-1">Health Index (0.0 to 1.0)</label>
+                      <input type="text" value={formHealth} onChange={e => setFormHealth(e.target.value)} className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded text-zinc-300 outline-none" />
                     </div>
                     <div className="col-span-2 pt-1">
                       {formSuccessMessage && <div className="p-2 bg-emerald-950/20 border border-emerald-500/20 text-emerald-400 text-[10px] rounded text-center mb-2">{formSuccessMessage}</div>}
-                      <button type="submit" className="w-full py-2 bg-zinc-150 hover:bg-white text-zinc-950 font-bold uppercase rounded transition-all cursor-pointer">Commit Ledger Transaction</button>
+                      <button type="submit" className="w-full py-2 bg-zinc-100 hover:bg-white text-zinc-950 font-bold uppercase rounded transition-all cursor-pointer">Commit Ledger Transaction</button>
                     </div>
                   </form>
                 )}
@@ -1309,7 +1312,7 @@ export function SentinelGateway({
               
               <div className="bg-zinc-950/40 border border-zinc-900 rounded-lg p-4 flex items-center justify-center min-h-[200px] overflow-x-auto">
                 {nodes.length === 0 ? (
-                  <div className="text-zinc-650 font-mono text-[10px] text-center"><Database className="h-5 w-5 mx-auto mb-1 animate-bounce" />NO PEAKS IN REGISTRY.</div>
+                  <div className="text-zinc-600 font-mono text-[10px] text-center"><Database className="h-5 w-5 mx-auto mb-1 animate-bounce" />NO PEAKS IN REGISTRY.</div>
                 ) : (() => {
                   const mmrNodesMap: any = {};
                   nodes.forEach(n => { mmrNodesMap[n.pos] = { ...n, children: [], parent: null, x: 0, y: 0 }; });
@@ -1379,7 +1382,7 @@ export function SentinelGateway({
                         return (
                           <g key={n.pos}>
                             <circle cx={n.x} cy={n.y} r={isLeafNode ? 5 : 4} className={nodeColor} strokeWidth="1.5" />
-                            <text x={n.x} y={n.y - 8} textAnchor="middle" className="font-mono text-[7px] fill-zinc-550">#{n.pos}</text>
+                            <text x={n.x} y={n.y - 8} textAnchor="middle" className="font-mono text-[7px] fill-zinc-500">#{n.pos}</text>
                           </g>
                         );
                       })}
@@ -1395,7 +1398,7 @@ export function SentinelGateway({
               
               <div className="overflow-x-auto border border-zinc-900/80 rounded-lg">
                 <table className="w-full text-left font-mono text-[10px] text-zinc-400">
-                  <thead className="bg-zinc-950 text-zinc-555 uppercase">
+                  <thead className="bg-zinc-950 text-zinc-500 uppercase">
                     <tr>
                       <th className="py-2 px-3">LEAF</th>
                       <th className="py-2 px-3">TIMESTAMP</th>
@@ -1408,7 +1411,7 @@ export function SentinelGateway({
                   <tbody className="divide-y divide-zinc-900 bg-zinc-950/20">
                     {ledgerHistory.map((row) => (
                       <tr key={row.leaf_index}>
-                        <td className="py-2 px-3 font-bold text-zinc-550">#{row.leaf_index}</td>
+                        <td className="py-2 px-3 font-bold text-zinc-500">#{row.leaf_index}</td>
                         <td className="py-2 px-3 text-zinc-500">{row.timestamp.split("T")[0]}</td>
                         <td className="py-2 px-3 text-zinc-300 font-bold">{row.component_id}</td>
                         <td className="py-2 px-3 text-zinc-200 font-bold">{row.action_taken}</td>
