@@ -81,7 +81,17 @@ export interface FederatedRound {
   global_loss: number;
 }
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const getBackendUrl = () => {
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    if (hostname === "localhost") {
+      return "http://localhost:8000";
+    }
+  }
+  return "http://127.0.0.1:8000";
+};
+
+const BACKEND_URL = getBackendUrl();
 
 const MOCK_ATTRIBUTION_1 = [
   { sensor: "s11", percentage: 14.5 },
@@ -677,7 +687,8 @@ export default function Dashboard() {
         alert("Federated round failed. Ensure backend has completed train_tcn setup.");
       }
     } catch (e) {
-      alert("Error contacting aggregation server: " + e);
+      console.warn("Error contacting aggregation server:", e);
+      setBackendOnline(false);
     } finally {
       setIsFederating(false);
     }
@@ -736,7 +747,8 @@ export default function Dashboard() {
         fetchLedgerHistory();
       }
     } catch (e) {
-      alert("Error triggering tamper route: " + e);
+      console.warn("Error triggering tamper route:", e);
+      setBackendOnline(false);
     }
   };
 
@@ -869,7 +881,8 @@ export default function Dashboard() {
         alert("Verification failed: " + err.detail);
       }
     } catch (err: any) {
-      alert("Error: " + err.message);
+      console.warn("Error committing ledger:", err);
+      setBackendOnline(false);
     }
   };
 
