@@ -16,7 +16,21 @@ import {
   Settings,
   Lock,
   FileText,
-  Network
+  Network,
+  Plane,
+  MapPin,
+  Compass,
+  ArrowLeft,
+  Calendar,
+  AlertCircle,
+  HelpCircle,
+  LogOut,
+  Map,
+  Server,
+  Clock,
+  Wind,
+  Droplets,
+  Thermometer
 } from "lucide-react";
 import {
   LineChart,
@@ -30,8 +44,10 @@ import {
   ReferenceLine
 } from "recharts";
 
+import { LoginScreen, HangarSelector, HangarDashboard, AssetDetail, SentinelGateway } from "./V3Views";
+
 // Types
-interface EngineData {
+export interface EngineData {
   id: string;
   name: string;
   status: "Nominal" | "Warning" | "Critical";
@@ -47,7 +63,7 @@ interface EngineData {
   attribution?: { sensor: string; percentage: number }[];
 }
 
-interface LedgerRecord {
+export interface LedgerRecord {
   leaf_index: number;
   timestamp: string;
   component_id: string;
@@ -57,7 +73,7 @@ interface LedgerRecord {
   node_hash: string;
 }
 
-interface FederatedRound {
+export interface FederatedRound {
   round: number;
   station_1_loss: number;
   station_2_loss: number;
@@ -176,6 +192,116 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
   }
 };
 
+export interface PlaneData {
+  id: string;
+  name: string;
+  model: string;
+  origin: string;
+  originName: string;
+  destination: string;
+  destinationName: string;
+  status: "Airborne" | "Ready" | "Maintenance";
+  phase: "Pre-Flight" | "Takeoff" | "Cruise" | "Descent" | "Landed" | "Maintenance";
+  progress: number;
+  speed: number;
+  altitude: number;
+  engines: string[];
+  fuel: number;
+  routeCoordinates: { x: number; y: number }[];
+}
+
+const INITIAL_PLANES: Record<string, PlaneData> = {
+  "PL-101": {
+    id: "PL-101",
+    name: "Airbus A350 - Alpha 101",
+    model: "A350-900 XWB",
+    origin: "SEA",
+    originName: "Seattle (SEA)",
+    destination: "LHR",
+    destinationName: "London (LHR)",
+    status: "Airborne",
+    phase: "Cruise",
+    progress: 45,
+    speed: 510,
+    altitude: 35000,
+    engines: ["ENG-001"],
+    fuel: 62,
+    routeCoordinates: [
+      { x: 100, y: 100 },  // Seattle
+      { x: 210, y: 75 },   // Mid Atlantic Control
+      { x: 320, y: 95 }    // London
+    ]
+  },
+  "PL-202": {
+    id: "PL-202",
+    name: "Boeing 787 - Beta 202",
+    model: "787-9 Dreamliner",
+    origin: "LHR",
+    originName: "London (LHR)",
+    destination: "BOM",
+    destinationName: "Mumbai (BOM)",
+    status: "Airborne",
+    phase: "Cruise",
+    progress: 20,
+    speed: 495,
+    altitude: 37000,
+    engines: ["ENG-002"],
+    fuel: 78,
+    routeCoordinates: [
+      { x: 320, y: 95 },   // London
+      { x: 390, y: 110 },  // Middle East Control
+      { x: 460, y: 160 }   // Mumbai
+    ]
+  },
+  "PL-303": {
+    id: "PL-303",
+    name: "Airbus A320 - Gamma 303",
+    model: "A320neo",
+    origin: "BOM",
+    originName: "Mumbai (BOM)",
+    destination: "SEA",
+    destinationName: "Seattle (SEA)",
+    status: "Ready",
+    phase: "Pre-Flight",
+    progress: 0,
+    speed: 0,
+    altitude: 0,
+    engines: ["ENG-003"],
+    fuel: 100,
+    routeCoordinates: [
+      { x: 460, y: 160 },  // Mumbai
+      { x: 280, y: 110 },  // North Pacific Control
+      { x: 100, y: 100 }   // Seattle
+    ]
+  }
+};
+
+const getBezierCoordinates = (
+  p0: { x: number; y: number },
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  t: number
+) => {
+  const u = 1 - t;
+  const tt = t * t;
+  const uu = u * u;
+  
+  const x = uu * p0.x + 2 * u * t * p1.x + tt * p2.x;
+  const y = uu * p0.y + 2 * u * t * p1.y + tt * p2.y;
+  
+  return { x, y };
+};
+
+const getPlaneCoordinates = (plane: PlaneData) => {
+  const p = plane.routeCoordinates;
+  const t = plane.progress / 100;
+  
+  if (p.length === 3) {
+    return getBezierCoordinates(p[0], p[1], p[2], t);
+  }
+  return p[0];
+};
+
 const SENSOR_METADATA: Record<string, { label: string; desc: string }> = {
   s2: { label: "LPC Outlet Temp", desc: "Temperature of the airflow at the exit of the Low Pressure Compressor." },
   s3: { label: "HPC Outlet Temp", desc: "High Pressure Compressor exit temperature, indicating thermal stress." },
@@ -203,6 +329,19 @@ export default function Dashboard() {
   const [selectedEngineId, setSelectedEngineId] = useState<string>("ENG-001");
   const [activeTab, setActiveTab] = useState<"fleet" | "federated" | "ledger">("fleet");
   
+  // V3 states
+  const [viewState, setViewState] = useState<'login' | 'hangar-select' | 'dashboard' | 'asset-detail' | 'sentinel-gate'>('login');
+  const [selectedHangar, setSelectedHangar] = useState<string | null>(null);
+  const [selectedPlaneId, setSelectedPlaneId] = useState<string | null>(null);
+  const [hoveredPlaneId, setHoveredPlaneId] = useState<string | null>(null);
+  const [planes, setPlanes] = useState<Record<string, PlaneData>>(INITIAL_PLANES);
+  
+  // Hangar credentials login
+  const [hangarAccessKey, setHangarAccessKey] = useState("");
+  const [hangarAccessPin, setHangarAccessPin] = useState("");
+  const [hangarAccessError, setHangarAccessError] = useState("");
+  const [isHangarModalOpen, setIsHangarModalOpen] = useState(false);
+
   // Backend statuses
   const [backendOnline, setBackendOnline] = useState(false);
   const [isInferring, setIsInferring] = useState(false);
@@ -264,6 +403,74 @@ export default function Dashboard() {
               });
               return nextEngines;
             });
+
+            // V3: Live coordinates and flight state update
+            setPlanes(prev => {
+              const nextPlanes = { ...prev };
+              Object.keys(nextPlanes).forEach(id => {
+                const plane = nextPlanes[id];
+                if (plane.status === "Airborne") {
+                  let nextProgress = plane.progress + 2;
+                  let nextPhase = plane.phase;
+                  let nextAltitude = plane.altitude;
+                  let nextSpeed = plane.speed;
+                  let nextFuel = Math.max(5, plane.fuel - 0.3);
+
+                  if (nextProgress >= 100) {
+                    nextProgress = 0;
+                    nextPhase = "Landed";
+                    nextAltitude = 0;
+                    nextSpeed = 0;
+                    nextFuel = 100;
+                    nextPlanes[id] = {
+                      ...plane,
+                      status: "Ready",
+                      phase: nextPhase,
+                      progress: nextProgress,
+                      altitude: nextAltitude,
+                      speed: nextSpeed,
+                      fuel: nextFuel
+                    };
+                  } else {
+                    if (nextProgress < 15) {
+                      nextPhase = "Takeoff";
+                      nextAltitude = Math.round(nextProgress * 2000);
+                      nextSpeed = Math.round(150 + nextProgress * 20);
+                    } else if (nextProgress >= 15 && nextProgress < 85) {
+                      nextPhase = "Cruise";
+                      nextAltitude = 35000 + (nextProgress % 3) * 500;
+                      nextSpeed = 500 + (nextProgress % 2) * 10;
+                    } else {
+                      nextPhase = "Descent";
+                      const descentPct = (100 - nextProgress) / 15;
+                      nextAltitude = Math.round(descentPct * 35000);
+                      nextSpeed = Math.round(150 + descentPct * 350);
+                    }
+
+                    nextPlanes[id] = {
+                      ...plane,
+                      progress: nextProgress,
+                      phase: nextPhase,
+                      altitude: nextAltitude,
+                      speed: nextSpeed,
+                      fuel: parseFloat(nextFuel.toFixed(1))
+                    };
+                  }
+                } else if (plane.status === "Ready" && Math.random() < 0.05) {
+                  // Simulate random takeoff to make the radar map dynamic
+                  nextPlanes[id] = {
+                    ...plane,
+                    status: "Airborne",
+                    phase: "Takeoff",
+                    progress: 1,
+                    speed: 150,
+                    altitude: 500,
+                    fuel: 100
+                  };
+                }
+              });
+              return nextPlanes;
+            });
           }
         } catch (err) {
           console.error("Error parsing WebSocket message:", err);
@@ -319,6 +526,7 @@ export default function Dashboard() {
     if (loginPin === "7700") {
       setIsLoggedIn(true);
       setLoginError("");
+      setViewState("hangar-select");
     } else {
       setLoginError("Invalid Security Clearance PIN.");
     }
@@ -635,6 +843,55 @@ export default function Dashboard() {
           [engineId]: updatedEngine
         }));
 
+        // V3: Advance matching aircraft telemetry cycles dynamically
+        setPlanes(prev => {
+          const nextPlanes = { ...prev };
+          const targetPlaneId = Object.keys(nextPlanes).find(key => nextPlanes[key].engines.includes(engineId));
+          if (targetPlaneId) {
+            const plane = nextPlanes[targetPlaneId];
+            if (plane.status !== "Airborne") {
+              plane.status = "Airborne";
+            }
+            let nextProgress = plane.progress + 5;
+            let nextPhase = plane.phase;
+            let nextAltitude = plane.altitude;
+            let nextSpeed = plane.speed;
+            let nextFuel = Math.max(5, plane.fuel - 1.5);
+
+            if (nextProgress >= 100) {
+              nextProgress = 0;
+              nextPhase = "Landed";
+              nextAltitude = 0;
+              nextSpeed = 0;
+              nextFuel = 100;
+              plane.status = "Ready";
+            } else if (nextProgress < 15) {
+              nextPhase = "Takeoff";
+              nextAltitude = Math.round(nextProgress * 2000);
+              nextSpeed = Math.round(150 + nextProgress * 20);
+            } else if (nextProgress >= 15 && nextProgress < 85) {
+              nextPhase = "Cruise";
+              nextAltitude = 35000 + (nextProgress % 3) * 500;
+              nextSpeed = 500 + (nextProgress % 2) * 10;
+            } else {
+              nextPhase = "Descent";
+              const descentPct = (100 - nextProgress) / 15;
+              nextAltitude = Math.round(descentPct * 35000);
+              nextSpeed = Math.round(150 + descentPct * 350);
+            }
+
+            nextPlanes[targetPlaneId] = {
+              ...plane,
+              progress: nextProgress,
+              phase: nextPhase,
+              altitude: nextAltitude,
+              speed: nextSpeed,
+              fuel: parseFloat(nextFuel.toFixed(1))
+            };
+          }
+          return nextPlanes;
+        });
+
         if (result.anomaly_flag) {
           triggerAutoLedgerAppend(engineId, result.health_score, result.predicted_rul);
         }
@@ -699,1173 +956,112 @@ export default function Dashboard() {
     return "bg-red-500 animate-pulse";
   };
 
-  if (!isLoggedIn) {
+  // --- CLIENT ROUTER ---
+  if (viewState === "login") {
     return (
-      <div className="flex-1 flex items-center justify-center min-h-[85vh] p-4 bg-zinc-950">
-        <div className="w-full max-w-sm p-8 bg-zinc-900/10 border border-zinc-900 rounded-lg shadow-2xl backdrop-blur-md space-y-8">
-          
-          {/* Typographical Branding */}
-          <div className="space-y-1">
-            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.3em] block">
-              AERO-PROPULSION SYSTEMS
-            </span>
-            <h1 className="text-xl font-bold tracking-wider text-zinc-100 uppercase font-sans">
-              SENTINEL<span className="text-zinc-500 font-light">MRO</span>
-            </h1>
-            <p className="text-[11px] text-zinc-400 font-sans">
-              Maintenance, Repair & Overhaul Gateway
-            </p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-5">
-            {loginError && (
-              <div className="p-3 bg-red-950/20 border border-red-500/20 rounded-md text-[11px] text-red-400 text-center font-mono">
-                {loginError}
-              </div>
-            )}
-            
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block">
-                Technician ID
-              </label>
-              <input
-                type="text"
-                value={loginTechId}
-                onChange={(e) => setLoginTechId(e.target.value)}
-                placeholder="TECH-000"
-                className="w-full bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-zinc-200 focus:border-zinc-700 outline-none text-xs font-mono transition-colors rounded-md"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block">
-                Security clearance PIN
-              </label>
-              <input
-                type="password"
-                value={loginPin}
-                onChange={(e) => setLoginPin(e.target.value)}
-                placeholder="••••"
-                className="w-full bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-zinc-200 focus:border-zinc-700 outline-none text-xs font-mono tracking-widest text-center transition-colors rounded-md"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-2.5 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-mono font-bold uppercase tracking-widest transition-all active:scale-[0.98] cursor-pointer rounded-md"
-            >
-              Access Gateway
-            </button>
-          </form>
-
-          {/* Minimal security indicators */}
-          <div className="text-[9px] font-mono text-zinc-500 flex justify-between items-center border-t border-zinc-900/80 pt-5">
-            <span>CLEARANCE: LEVEL-2 (PIN: 7700)</span>
-            <span>SECURE GATEWAY</span>
-          </div>
-        </div>
-      </div>
+      <LoginScreen 
+        loginTechId={loginTechId}
+        setLoginTechId={setLoginTechId}
+        loginPin={loginPin}
+        setLoginPin={setLoginPin}
+        loginError={loginError}
+        onSubmit={handleLogin}
+      />
     );
   }
 
+  if (viewState === "hangar-select") {
+    return (
+      <HangarSelector
+        selectedHangar={selectedHangar}
+        setSelectedHangar={setSelectedHangar}
+        hangarAccessKey={hangarAccessKey}
+        setHangarAccessKey={setHangarAccessKey}
+        hangarAccessPin={hangarAccessPin}
+        setHangarAccessPin={setHangarAccessPin}
+        hangarAccessError={hangarAccessError}
+        setHangarAccessError={setHangarAccessError}
+        isHangarModalOpen={isHangarModalOpen}
+        setIsHangarModalOpen={setIsHangarModalOpen}
+        setViewState={setViewState}
+      />
+    );
+  }
+
+  if (viewState === "dashboard") {
+    return (
+      <HangarDashboard
+        selectedHangar={selectedHangar}
+        setSelectedHangar={setSelectedHangar}
+        setViewState={setViewState}
+        planes={planes}
+        setSelectedPlaneId={setSelectedPlaneId}
+        hoveredPlaneId={hoveredPlaneId}
+        setHoveredPlaneId={setHoveredPlaneId}
+        engines={engines}
+        isStreaming={isStreaming}
+        backendOnline={backendOnline}
+        runFederatedRound={runFederatedRound}
+        isFederating={isFederating}
+        federatedHistory={federatedHistory}
+        mounted={mounted}
+      />
+    );
+  }
+
+  if (viewState === "asset-detail") {
+    return (
+      <AssetDetail
+        selectedPlaneId={selectedPlaneId}
+        setSelectedPlaneId={setSelectedPlaneId}
+        setViewState={setViewState}
+        planes={planes}
+        engines={engines}
+        setSelectedEngineId={setSelectedEngineId}
+        ledgerHistory={ledgerHistory}
+      />
+    );
+  }
+
+  // viewState === 'sentinel-gate'
   return (
-    <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6 bg-zinc-950 text-zinc-100 select-none">
-      <style dangerouslySetInnerHTML={{__html: `
-        html, body, :root {
-          -ms-overflow-style: none !important;
-          scrollbar-width: none !important;
-        }
-        html::-webkit-scrollbar, body::-webkit-scrollbar {
-          display: none !important;
-        }
-        .no-scrollbar::-webkit-scrollbar {
-          display: none !important;
-        }
-        .no-scrollbar {
-          -ms-overflow-style: none !important;
-          scrollbar-width: none !important;
-        }
-      `}} />
-      
-      {/* 1. Header with System Badges */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-900 pb-5 gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2">
-            <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.25em] block">
-              Prognostics & Registry Control
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-wider text-zinc-100 uppercase">
-            SENTINEL<span className="text-zinc-500 font-light">MRO</span>
-          </h1>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-zinc-400">
-          <div className={`flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${backendOnline ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-ping"}`} />
-            <span className="uppercase">Gateway: {backendOnline ? "Online" : "Offline"}</span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md">
-            <Layers className="h-3 w-3 text-zinc-500" />
-            <span>LEDGER ENTRIES: {ledgerHistory.length}</span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md">
-            <User className="h-3 w-3 text-zinc-500" />
-            <span className="uppercase">{loginTechId}</span>
-          </div>
-
-          <button 
-            onClick={() => setIsLoggedIn(false)}
-            className="border border-zinc-800 hover:border-zinc-650 hover:bg-zinc-900/20 px-3 py-1 rounded-md text-zinc-350 transition-all cursor-pointer"
-          >
-            LOG OUT
-          </button>
-        </div>
-      </header>
-
-      {/* Navigation tabs */}
-      <div className="flex border-b border-zinc-900 text-xs font-mono">
-        <button 
-          onClick={() => setActiveTab("fleet")}
-          className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
-            activeTab === "fleet" 
-              ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
-              : "border-transparent text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          01 / Fleet Telemetry
-        </button>
-        <button 
-          onClick={() => setActiveTab("federated")}
-          className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
-            activeTab === "federated" 
-              ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
-              : "border-transparent text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          02 / Fleet Calibration
-        </button>
-        <button 
-          onClick={() => setActiveTab("ledger")}
-          className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
-            activeTab === "ledger" 
-              ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
-              : "border-transparent text-zinc-500 hover:text-zinc-300"
-          }`}
-        >
-          03 / Ledger Registry
-        </button>
-      </div>
-
-      {/* Main dashboard body tabs content */}
-      <main className="space-y-6">
-        
-        {/* TAB 1: FLEET CONTROL & DEEP-DIVE TELEMETRY */}
-        {activeTab === "fleet" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Left: Active Components List */}
-            <div className="space-y-4 lg:col-span-1">
-              <div className="flex items-center space-x-2">
-                <Settings className="h-3.5 w-3.5 text-zinc-550" />
-                <h2 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Active Engine Registry</h2>
-              </div>
-              
-              <div className="space-y-3">
-                {Object.values(engines).map((eng) => (
-                  <div
-                    key={eng.id}
-                    onClick={() => setSelectedEngineId(eng.id)}
-                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                      selectedEngineId === eng.id 
-                        ? "bg-zinc-900/20 border-zinc-700 shadow-lg scale-[1.01]" 
-                        : "bg-zinc-900/5 border-zinc-900 hover:border-zinc-800"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <h3 className="font-bold text-zinc-200">{eng.id}</h3>
-                      <span className={`text-[10px] uppercase font-bold ${getStatusColor(eng.status)}`}>
-                        {eng.status}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-zinc-450 mt-1 font-sans">{eng.name}</p>
-                    
-                    <div className="mt-4 space-y-1.5">
-                      <div className="flex justify-between text-[10px] font-mono">
-                        <span className="text-zinc-500">HEALTH INDEX</span>
-                        <span className="text-zinc-300">{(eng.health * 100).toFixed(0)}%</span>
-                      </div>
-                      <div className="h-1 w-full bg-zinc-900/40 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full transition-all duration-500 ${getHealthBarColor(eng.health)}`}
-                          style={{ width: `${eng.health * 100}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between border-t border-zinc-900/80 pt-3 text-[10px] font-mono text-zinc-550">
-                      <span>CYCLES: <strong className="text-zinc-350">{eng.cycle}</strong></span>
-                      <span>RUL: <strong className="text-zinc-350">{eng.rul} CYC</strong></span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Engine Schematic & Sensor Mapping */}
-              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                    <Network className="h-4 w-4 text-zinc-500" />
-                    <span>Engine Sensor Node Map</span>
-                  </h3>
-                  {hoveredSensor && (
-                    <span className="text-[10px] font-mono bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded text-zinc-400 uppercase animate-fade-in">
-                      Active: {hoveredSensor}
-                    </span>
-                  )}
-                </div>
-
-                <div className="bg-zinc-950/60 border border-zinc-900/80 rounded-lg p-2 flex items-center justify-center relative">
-                  <svg viewBox="0 0 400 160" className="w-full h-auto text-zinc-700 select-none">
-                    {/* Stylized Engine Outline */}
-                    <path 
-                      d="M 40,40 L 120,40 L 140,55 L 290,55 L 310,40 L 350,40 L 340,80 L 350,120 L 310,120 L 290,105 L 140,105 L 120,120 L 40,120 Z" 
-                      fill="none" 
-                      stroke="#27272a" 
-                      strokeWidth="2" 
-                    />
-                    <path 
-                      d="M 50,45 L 120,45 L 138,58 L 290,58 L 308,45 L 340,45 M 50,115 L 120,115 L 138,102 L 290,102 L 308,115 L 340,115" 
-                      fill="none" 
-                      stroke="#18181b" 
-                      strokeWidth="1" 
-                    />
-                    
-                    {/* Compressor / Fan blades spinner */}
-                    <path d="M 45,80 Q 75,50 85,80 Q 75,110 45,80 Z" fill="#27272a" fillOpacity="0.2" stroke="#3f3f46" strokeWidth="1.5" />
-                    
-                    {/* Rotor Shaft */}
-                    <line x1="85" y1="80" x2="310" y2="80" stroke="#3f3f46" strokeWidth="2.5" strokeDasharray="6,4" strokeOpacity="0.4" />
-                    
-                    {/* Compression stages */}
-                    <line x1="95" y1="46" x2="95" y2="114" stroke="#27272a" strokeWidth="1.5" />
-                    <line x1="110" y1="46" x2="110" y2="114" stroke="#27272a" strokeWidth="1.5" />
-                    <line x1="125" y1="50" x2="125" y2="110" stroke="#27272a" strokeWidth="1.5" />
-                    
-                    {/* Combustor block */}
-                    <rect x="155" y="60" width="55" height="40" rx="3" fill="none" stroke="#ef4444" strokeWidth="1.5" strokeOpacity="0.2" />
-                    <circle cx="182" cy="80" r="10" fill="#ef4444" fillOpacity="0.05" stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,2" strokeOpacity="0.3" />
-                    
-                    {/* Turbine stages */}
-                    <line x1="235" y1="56" x2="235" y2="104" stroke="#27272a" strokeWidth="1.5" />
-                    <line x1="255" y1="56" x2="255" y2="104" stroke="#27272a" strokeWidth="1.5" />
-                    <line x1="275" y1="56" x2="275" y2="104" stroke="#27272a" strokeWidth="1.5" />
-                    
-                    {/* Exhaust nozzle cone */}
-                    <path d="M 290,80 L 320,68 L 320,92 Z" fill="#27272a" fillOpacity="0.4" stroke="#3f3f46" strokeWidth="1.5" />
-                    
-                    {/* Sensor Dots */}
-                    {[
-                      { id: "s8", label: "s8", x: 55, y: 50 },
-                      { id: "s2", label: "s2", x: 75, y: 110 },
-                      { id: "s3", label: "s3", x: 110, y: 52 },
-                      { id: "s9", label: "s9", x: 125, y: 108 },
-                      { id: "s15", label: "s15", x: 205, y: 35 },
-                      { id: "s4", label: "s4", x: 245, y: 110 },
-                      { id: "s11", label: "s11", x: 270, y: 52 },
-                      { id: "s12", label: "s12", x: 295, y: 110 }
-                    ].map((sensor) => {
-                      const isHovered = hoveredSensor === sensor.id;
-                      const wearRank = activeEngine.attribution?.findIndex(a => a.sensor === sensor.id) ?? -1;
-                      const isTopWear = wearRank === 0; // Highest attribution wear sensor
-                      
-                      let dotColor = "fill-zinc-700 stroke-zinc-950";
-                      let pulseClass = "";
-                      
-                      if (isTopWear) {
-                        dotColor = "fill-red-500 stroke-red-100";
-                        pulseClass = "animate-pulse";
-                      } else if (isHovered) {
-                        dotColor = "fill-zinc-100 stroke-white";
-                      } else if (wearRank !== -1 && wearRank < 3) {
-                        dotColor = "fill-amber-500 stroke-amber-100";
-                      }
-
-                      return (
-                        <g 
-                          key={sensor.id}
-                          className="cursor-pointer"
-                          onMouseEnter={() => setHoveredSensor(sensor.id)}
-                          onMouseLeave={() => setHoveredSensor(null)}
-                        >
-                          {/* Pulsing ring for top wear or hover */}
-                          {(isTopWear || isHovered) && (
-                            <circle 
-                              cx={sensor.x} 
-                              cy={sensor.y} 
-                              r="9" 
-                              className={`${pulseClass} ${isTopWear ? "fill-red-500/20" : "fill-zinc-100/20"}`} 
-                            />
-                          )}
-                          <circle 
-                            cx={sensor.x} 
-                            cy={sensor.y} 
-                            r="5.5" 
-                            className={`${dotColor} transition-all duration-350`} 
-                            strokeWidth="1.5"
-                          />
-                          {/* Label */}
-                          <text 
-                            x={sensor.x} 
-                            y={sensor.y - 9} 
-                            textAnchor="middle" 
-                            className={`font-mono text-[9px] select-none pointer-events-none transition-colors ${
-                              isHovered ? "fill-zinc-100 font-bold" : isTopWear ? "fill-red-400 font-bold" : "fill-zinc-500"
-                            }`}
-                          >
-                            {sensor.label.toUpperCase()}
-                          </text>
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </div>
-
-                {/* Sensor Details Area */}
-                <div className="bg-zinc-950/40 border border-zinc-900/60 p-3.5 rounded-lg text-[11px] font-mono min-h-[75px] flex flex-col justify-center">
-                  {hoveredSensor ? (
-                    <div className="space-y-1">
-                      <div className="flex justify-between">
-                        <span className="text-zinc-250 font-bold">{hoveredSensor.toUpperCase()} - {SENSOR_METADATA[hoveredSensor]?.label}</span>
-                        <span className="text-zinc-400">
-                          WEAR: {activeEngine.attribution?.find(a => a.sensor === hoveredSensor)?.percentage.toFixed(1) ?? "0.0"}%
-                        </span>
-                      </div>
-                      <p className="text-zinc-500 leading-normal font-sans text-[11px]">
-                        {SENSOR_METADATA[hoveredSensor]?.desc}
-                      </p>
-                    </div>
-                  ) : activeEngine.attribution && activeEngine.attribution.length > 0 ? (
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-red-450 text-[10px]">
-                        <span className="font-bold uppercase tracking-wider flex items-center space-x-1">
-                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                          <span>Primary Hotspot: {activeEngine.attribution[0].sensor.toUpperCase()}</span>
-                        </span>
-                        <span className="font-bold font-mono">
-                          {activeEngine.attribution[0].percentage.toFixed(1)}% ATTRIBUTION
-                        </span>
-                      </div>
-                      <p className="text-zinc-500 leading-normal font-sans text-[11px]">
-                        Component <strong>{SENSOR_METADATA[activeEngine.attribution[0].sensor]?.label}</strong> is demonstrating the highest degradation rate. Inspect internal seals.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-zinc-550 text-center font-sans">
-                      Hover over the sensor nodes in the engine blueprint to view locations and diagnostic descriptions.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-            {/* Right: Deep Dive Analytics and Live Streaming */}
-            <div className="lg:col-span-2 space-y-6 font-sans">
-              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-5">
-                
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
-                      Live Telemetry & Predictor Plot
-                    </span>
-                    <h2 className="text-lg font-bold text-zinc-200 uppercase">
-                      Prognostics Analysis: {activeEngine.id}
-                    </h2>
-                  </div>
-                  
-                  <div className="flex flex-wrap items-center gap-3">
-                    {/* WebSocket Streaming Controls */}
-                    <div className="flex items-center space-x-2 bg-zinc-950 border border-zinc-900 px-3 py-1.5 rounded-md text-[11px] font-mono">
-                      <span className="text-zinc-500 uppercase">WS STREAM:</span>
-                      <button
-                        type="button"
-                        onClick={() => setIsStreaming(prev => !prev)}
-                        disabled={!backendOnline}
-                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all duration-300 cursor-pointer ${
-                          isStreaming 
-                            ? "bg-red-500/20 text-red-400 border border-red-500/30" 
-                            : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                        }`}
-                      >
-                        {isStreaming ? "PAUSE" : "START"}
-                      </button>
-                      
-                      {isStreaming && <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>}
-                      
-                      <select
-                        value={streamingRate}
-                        onChange={(e) => handleRateChange(Number(e.target.value))}
-                        disabled={!backendOnline}
-                        className="bg-zinc-900 border border-zinc-800 px-1 py-0.5 rounded text-zinc-300 outline-none text-[10px] cursor-pointer"
-                      >
-                        <option value={1000}>1.0s</option>
-                        <option value={500}>0.5s</option>
-                        <option value={200}>0.2s</option>
-                      </select>
-                    </div>
-
-                    <button
-                      onClick={() => streamNextCycle(activeEngine.id)}
-                      disabled={isInferring || isStreaming || !backendOnline}
-                      className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2 px-4 rounded-md text-xs tracking-wider transition-all active:scale-95 cursor-pointer"
-                    >
-                      <RefreshCw className={`h-3 w-3 ${isInferring ? "animate-spin" : ""}`} />
-                      <span>{isInferring ? "EVALUATING MODEL..." : "SIMULATE FLIGHT CYCLE"}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Status Banners */}
-                {activeEngine.rul < 30 && (
-                  <div className="flex items-center space-x-3 bg-red-950/20 border border-red-900/20 text-red-400 p-3.5 rounded-lg text-xs font-mono">
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
-                    <div>
-                      <strong>WARNING: CRITICAL LIFETIME LIMIT REACHED.</strong> Remaining Useful Life (RUL) has dropped below safe threshold (30 cycles). Immediate overhaul required.
-                    </div>
-                  </div>
-                )}
-
-                {/* Recharts Container */}
-                <div className="h-72 w-full mt-4 bg-zinc-950/30 p-2 border border-zinc-900/60 rounded-xl">
-                  {mounted && (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={activeEngine.history}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
-                        <XAxis dataKey="cycle" stroke="#52525b" fontSize={10} fontFamily="monospace" label={{ value: 'Flight Cycles', position: 'insideBottomRight', offset: -5, fill: '#52525b', fontSize: 10 }} />
-                        <YAxis yAxisId="left" stroke="#a1a1aa" fontSize={10} fontFamily="monospace" label={{ value: 'Remaining Cycles', angle: -90, position: 'insideLeft', fill: '#a1a1aa', fontSize: 10 }} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#71717a" fontSize={10} fontFamily="monospace" label={{ value: 'Telemetry Voltages', angle: 90, position: 'insideRight', fill: '#71717a', fontSize: 10 }} />
-                        <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#18181b", color: "#f4f4f5", fontFamily: "monospace", fontSize: 10 }} />
-                        <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
-                        
-                        <ReferenceLine yAxisId="left" y={30} stroke="#ef4444" strokeDasharray="4 4" label={{ value: 'Limit: 30', fill: '#ef4444', fontSize: 9, position: 'insideTopLeft' }} />
-                        
-                        <Line yAxisId="left" type="monotone" dataKey="rul" name="Predicted RUL" stroke="#f4f4f5" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
-                        <Line yAxisId="right" type="monotone" dataKey="sensor_11" name="Sensor LPC Temp" stroke="#71717a" strokeWidth={1} dot={false} />
-                        <Line yAxisId="right" type="monotone" dataKey="sensor_12" name="Sensor Bypass Ratio" stroke="#3f3f46" strokeWidth={1} strokeDasharray="3 3" dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-
-                {/* Telemetry metrics panel */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-xs bg-zinc-950/40 p-4 border border-zinc-900 rounded-lg font-mono">
-                  <div className="space-y-1">
-                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Active Cycle</span>
-                    <strong className="text-zinc-200 text-base">{activeEngine.cycle}</strong>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Estimated RUL</span>
-                    <strong className="text-zinc-200 text-base">{activeEngine.rul} Cycles</strong>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Sensor Bypass Ratio</span>
-                    <strong className="text-zinc-300 text-base">
-                      {activeEngine.history[activeEngine.history.length - 1].sensor_12.toFixed(3)}
-                    </strong>
-                  </div>
-                  <div className="space-y-1">
-                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Sensor LPC Temp</span>
-                    <strong className="text-zinc-300 text-base">
-                      {activeEngine.history[activeEngine.history.length - 1].sensor_11.toFixed(1)} K
-                    </strong>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* Explainable AI Diagnostics panel */}
-              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
-                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                  <Cpu className="h-4 w-4 text-zinc-500" />
-                  <span>Explainable AI (XAI) Diagnostics: Sensor Attribution</span>
-                </h3>
-                <p className="text-[11px] text-zinc-450 leading-relaxed font-sans">
-                  Computed using <strong>Integrated Gradients</strong> on the edge TCN network. This panel identifies which sensors are the primary wear-contributors driving down the engine's Remaining Useful Life (RUL).
-                </p>
-
-                {activeEngine.attribution && activeEngine.attribution.length > 0 ? (
-                  <div className="space-y-4 pt-2">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                      {/* Top 7 sensors */}
-                      <div className="space-y-3">
-                        {activeEngine.attribution.slice(0, 7).map((item: any, idx: number) => {
-                          const isTop = idx < 3;
-                          const barColor = isTop ? "bg-red-500" : "bg-zinc-600";
-                          const textColor = isTop ? "text-red-400 font-bold" : "text-zinc-450";
-                          return (
-                            <div key={item.sensor} className="space-y-1">
-                              <div className="flex justify-between text-[11px]">
-                                <span className={textColor}>
-                                  {item.sensor.toUpperCase()} ({
-                                    item.sensor === "s11" ? "HPT coolant bleed" :
-                                    item.sensor === "s12" ? "LPT coolant bleed" :
-                                    item.sensor === "s15" ? "Bypass ratio" :
-                                    item.sensor === "s4" ? "LPT outlet temp" :
-                                    item.sensor === "s3" ? "HPC outlet temp" :
-                                    item.sensor === "s2" ? "LPC outlet temp" :
-                                    item.sensor === "s7" ? "Bypass ratio" :
-                                    item.sensor === "s8" ? "Fan speed" :
-                                    item.sensor === "s9" ? "Core speed" :
-                                    item.sensor === "s13" ? "Bleed enthalpy" :
-                                    item.sensor === "s14" ? "Demand factor" :
-                                    item.sensor === "s17" ? "Pressure ratio" :
-                                    item.sensor === "s20" ? "HPT speed" :
-                                    item.sensor === "s21" ? "LPT speed" : "Sensor"
-                                  })
-                                </span>
-                                <span className={textColor}>{item.percentage.toFixed(1)}%</span>
-                              </div>
-                              <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden border border-zinc-900">
-                                <div 
-                                  className={`h-full rounded-full transition-all duration-500 ${barColor}`} 
-                                  style={{ width: `${item.percentage}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {/* Remaining 7 sensors */}
-                      <div className="space-y-3">
-                        {activeEngine.attribution.slice(7).map((item: any) => {
-                          return (
-                            <div key={item.sensor} className="space-y-1">
-                              <div className="flex justify-between text-[11px]">
-                                <span className="text-zinc-500">
-                                  {item.sensor.toUpperCase()} ({
-                                    item.sensor === "s11" ? "HPT coolant bleed" :
-                                    item.sensor === "s12" ? "LPT coolant bleed" :
-                                    item.sensor === "s15" ? "Bypass ratio" :
-                                    item.sensor === "s4" ? "LPT outlet temp" :
-                                    item.sensor === "s3" ? "HPC outlet temp" :
-                                    item.sensor === "s2" ? "LPC outlet temp" :
-                                    item.sensor === "s7" ? "Bypass ratio" :
-                                    item.sensor === "s8" ? "Fan speed" :
-                                    item.sensor === "s9" ? "Core speed" :
-                                    item.sensor === "s13" ? "Bleed enthalpy" :
-                                    item.sensor === "s14" ? "Demand factor" :
-                                    item.sensor === "s17" ? "Pressure ratio" :
-                                    item.sensor === "s20" ? "HPT speed" :
-                                    item.sensor === "s21" ? "LPT speed" : "Sensor"
-                                  })
-                                </span>
-                                <span className="text-zinc-400">{item.percentage.toFixed(1)}%</span>
-                              </div>
-                              <div className="w-full bg-zinc-950 h-2 rounded-full overflow-hidden border border-zinc-900">
-                                <div 
-                                  className="h-full rounded-full bg-zinc-700/60 transition-all duration-500" 
-                                  style={{ width: `${item.percentage}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    
-                    {/* Synthesis Diagnosis */}
-                    <div className="p-3.5 bg-zinc-950 border border-zinc-900 rounded-lg text-[11px] font-mono text-zinc-450 flex items-start space-x-2">
-                      <Terminal className="h-4 w-4 text-zinc-500 shrink-0 mt-0.5" />
-                      <div>
-                        <strong>DIAGNOSTIC REPORT:</strong> Primary wear detected in {" "}
-                        <span className="text-red-400 font-bold">
-                          {activeEngine.attribution[0].sensor.toUpperCase()} ({
-                            activeEngine.attribution[0].sensor === "s11" ? "HPT coolant bleed" :
-                            activeEngine.attribution[0].sensor === "s12" ? "LPT coolant bleed" :
-                            activeEngine.attribution[0].sensor === "s15" ? "Bypass ratio" :
-                            activeEngine.attribution[0].sensor === "s4" ? "LPT outlet temp" :
-                            activeEngine.attribution[0].sensor === "s3" ? "HPC outlet temp" :
-                            activeEngine.attribution[0].sensor === "s2" ? "LPC outlet temp" :
-                            activeEngine.attribution[0].sensor === "s7" ? "Bypass ratio" :
-                            activeEngine.attribution[0].sensor === "s8" ? "Fan speed" :
-                            activeEngine.attribution[0].sensor === "s9" ? "Core speed" :
-                            activeEngine.attribution[0].sensor === "s13" ? "Bleed enthalpy" :
-                            activeEngine.attribution[0].sensor === "s14" ? "Demand factor" :
-                            activeEngine.attribution[0].sensor === "s17" ? "Pressure ratio" :
-                            activeEngine.attribution[0].sensor === "s20" ? "HPT speed" :
-                            activeEngine.attribution[0].sensor === "s21" ? "LPT speed" : "Sensor"
-                          })
-                        </span>{" "}
-                        (attribution score: {activeEngine.attribution[0].percentage.toFixed(1)}%). We recommend inspecting the component's internal thermodynamic seals and cooling channels.
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-zinc-950/20 border border-zinc-900 border-dashed rounded-lg p-8 text-center text-xs font-mono text-zinc-550">
-                    NO XAI DIAGNOSTICS LOADED. RUN A FLIGHT CYCLE SIMULATION OR ENABLE LIVE WEBSOCKET STREAMING TO TRIGGER ATTRIBUTION MAPS.
-                  </div>
-                )}
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 2: FEDERATED CALIBRATION CONSOLE */}
-        {activeTab === "federated" && (
-          <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-6">
-            
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
-              <div className="space-y-1">
-                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
-                  Secure Parameters Compilation
-                </span>
-                <h2 className="text-xl font-bold text-zinc-100 uppercase flex items-center space-x-2">
-                  <span>Distributed Fleet Prognostics Calibrator</span>
-                </h2>
-              </div>
-
-              <button
-                onClick={runFederatedRound}
-                disabled={isFederating || !backendOnline}
-                className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2 px-4 rounded-md text-xs tracking-wider transition-all active:scale-95 cursor-pointer"
-              >
-                <Play className={`h-3 w-3 ${isFederating ? "animate-spin" : ""}`} />
-                <span>{isFederating ? "SYNCHRONIZING..." : "SYNCHRONIZE FLEET MODELS"}</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
-              
-              {/* Hangar groups info */}
-              <div className="lg:col-span-1 space-y-4">
-                <h3 className="font-mono text-xs uppercase tracking-widest text-zinc-400 border-b border-zinc-900 pb-2">Hangar Station Nodes</h3>
-                
-                <div className="space-y-4 text-xs">
-                  <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded-md">
-                    <strong className="text-zinc-300 font-mono text-[11px] block">Hangar Group A (Nominal Operations)</strong>
-                    <p className="text-zinc-500 mt-1 font-sans leading-relaxed text-[11px]">Telemetry logs capturing standard operating cycles (Cycles ≤ 60).</p>
-                  </div>
-                  
-                  <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded-md">
-                    <strong className="text-zinc-300 font-mono text-[11px] block">Hangar Group B (Stress Diagnostics)</strong>
-                    <p className="text-zinc-500 mt-1 font-sans leading-relaxed text-[11px]">Telemetry logs detailing advanced wear fatigue and engine cycles near limit thresholds.</p>
-                  </div>
-
-                  <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded-md">
-                    <strong className="text-zinc-300 font-mono text-[11px] block">Hangar Group C (Mixed Operations)</strong>
-                    <p className="text-zinc-500 mt-1 font-sans leading-relaxed text-[11px]">Telemetry logs representing standard balanced fleet configurations.</p>
-                  </div>
-                  
-                  <div className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-md space-y-2">
-                    <strong className="text-zinc-400 flex items-center font-mono text-[10px] uppercase tracking-wider"><Terminal className="h-3 w-3 text-zinc-500 mr-2" /> Calibration settings</strong>
-                    <div className="text-[10px] font-mono text-zinc-500 space-y-1">
-                      <div>AGGREGATION: FedProx (mu=0.01)</div>
-                      <div>PRIVACY: Laplace Local DP (sigma=0.001)</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Training Convergence Plot */}
-              <div className="lg:col-span-2 space-y-4">
-                <h3 className="font-mono text-xs uppercase tracking-widest text-zinc-400">Parameter Convergence History</h3>
-                
-                <div className="h-72 w-full bg-zinc-950/30 p-2 border border-zinc-900 rounded-xl">
-                  {mounted && federatedHistory.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={federatedHistory}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
-                        <XAxis dataKey="round" stroke="#52525b" fontSize={10} fontFamily="monospace" label={{ value: 'Synchronization Rounds', position: 'insideBottomRight', offset: -5, fill: '#52525b', fontSize: 10 }} />
-                        <YAxis stroke="#52525b" fontSize={10} fontFamily="monospace" label={{ value: 'Mean Squared Error', angle: -90, position: 'insideLeft', fill: '#52525b', fontSize: 10 }} />
-                        <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#18181b", color: "#f4f4f5", fontFamily: "monospace", fontSize: 10 }} />
-                        <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
-                        <Line type="monotone" dataKey="station_1_loss" name="Group A Loss" stroke="#52525b" strokeWidth={1} dot={false} />
-                        <Line type="monotone" dataKey="station_2_loss" name="Group B Loss" stroke="#71717a" strokeWidth={1} dot={false} />
-                        <Line type="monotone" dataKey="station_3_loss" name="Group C Loss" stroke="#a1a1aa" strokeWidth={1.5} dot={false} />
-                        <Line type="monotone" dataKey="global_loss" name="Consolidated Fleet Loss" stroke="#f4f4f5" strokeWidth={2.5} dot={{ r: 3 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center font-mono text-zinc-550 text-xs">
-                      No synchronization logs found. Trigger model synchronization to compute global convergence metrics.
-                    </div>
-                  )}
-                </div>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-        {/* TAB 3: IMMUTABLE AUDIT LEDGER */}
-        {activeTab === "ledger" && (
-          <div className="space-y-6">
-            
-            {/* Security controls */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* MMR Verification Console */}
-              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
-                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                  <Shield className="h-4 w-4 text-zinc-500" />
-                  <span>Ledger Verification Console</span>
-                </h3>
-                <p className="text-[11px] text-zinc-450 leading-relaxed font-sans">
-                  Validates the structural integrity of the append-only maintenance ledger. Rebuilds the Merkle Mountain Range (MMR) directly from current records and compares the computed root against the stored seal.
-                </p>
-
-                <div className="flex space-x-3 pt-2">
-                  <button
-                    onClick={verifyLedgerIntegrity}
-                    disabled={isVerifying || !backendOnline}
-                    className="flex-1 flex items-center justify-center space-x-2 bg-zinc-800 hover:bg-zinc-750 disabled:opacity-50 text-zinc-200 border border-zinc-700 font-mono font-bold py-2.5 px-4 rounded-md text-xs transition-all cursor-pointer"
-                  >
-                    <CheckCircle className="h-3.5 w-3.5 text-zinc-400" />
-                    <span>RUN INTEGRITY VALIDATION</span>
-                  </button>
-
-                  <button
-                    onClick={simulateTampering}
-                    disabled={!backendOnline}
-                    className="flex-1 flex items-center justify-center space-x-2 bg-red-950/10 hover:bg-red-950/20 border border-red-900/25 text-red-400 font-mono font-bold py-2.5 px-4 rounded-md text-xs transition-all cursor-pointer"
-                  >
-                    <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
-                    <span>SIMULATE DATA TAMPER</span>
-                  </button>
-                </div>
-
-                {/* Verification result display */}
-                {verificationResult.verified !== null && (
-                  <div className={`p-4 rounded-md border space-y-3 font-mono text-xs ${
-                    verificationResult.verified 
-                      ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400" 
-                      : "bg-red-500/5 border-red-500/20 text-red-400"
-                  }`}>
-                    <div className="flex items-center space-x-2 font-bold uppercase tracking-wider text-[11px]">
-                      {verificationResult.verified ? (
-                        <>
-                          <CheckCircle className="h-4 w-4 text-emerald-500" />
-                          <span>Verification Secure: Root Integrity Intact</span>
-                        </>
-                      ) : (
-                        <>
-                          <AlertTriangle className="h-4 w-4 text-red-500" />
-                          <span>Verification Failure: Hash Mismatch Detected</span>
-                        </>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-zinc-350">{verificationResult.message}</p>
-                    
-                    <div className="text-[10px] border-t border-zinc-900/80 pt-2.5 space-y-1.5 text-zinc-500">
-                      <div className="truncate">COMPUTED ROOT: {verificationResult.computed_root || "N/A"}</div>
-                      <div className="truncate">DATABASE ROOT: {verificationResult.stored_root || "N/A"}</div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="text-[10px] font-mono border border-zinc-900 bg-zinc-950/40 p-4 rounded-md flex justify-between">
-                  <span className="text-zinc-500">MMR ROOT SEAL:</span>
-                  <span className="text-zinc-350 select-all truncate max-w-xs">{rootHash || "EMPTY REGISTER"}</span>
-                </div>
-
-              </div>
-
-              {/* Add maintenance log */}
-              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
-                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                  <Database className="h-4 w-4 text-zinc-500" />
-                  <span>Create Certified Maintenance Entry</span>
-                </h3>
-                
-                <form onSubmit={handleManualAppend} className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] font-mono">
-                  <div className="space-y-1.5">
-                    <label className="text-zinc-500 uppercase block text-[10px]">Component ID</label>
-                    <select
-                      value={formEngine}
-                      onChange={(e) => setFormEngine(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none cursor-pointer"
-                    >
-                      <option value="ENG-001" className="bg-zinc-900 text-zinc-200">ENG-001 (Alpha)</option>
-                      <option value="ENG-002" className="bg-zinc-900 text-zinc-200">ENG-002 (Bravo)</option>
-                      <option value="ENG-003" className="bg-zinc-900 text-zinc-200">ENG-003 (Charlie)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-zinc-500 uppercase block text-[10px]">Hangar Station</label>
-                    <select
-                      value={formStation}
-                      onChange={(e) => setFormStation(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none cursor-pointer"
-                    >
-                      <option value="STATION_001" className="bg-zinc-900 text-zinc-200">STATION_001 (Group A)</option>
-                      <option value="STATION_002" className="bg-zinc-900 text-zinc-200">STATION_002 (Group B)</option>
-                      <option value="STATION_003" className="bg-zinc-900 text-zinc-200">STATION_003 (Group C)</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-zinc-500 uppercase block text-[10px]">Log Action</label>
-                    <select
-                      value={formAction}
-                      onChange={(e) => setFormAction(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none cursor-pointer"
-                    >
-                      <option value="Sensor Calibration" className="bg-zinc-900 text-zinc-200">Sensor Calibration</option>
-                      <option value="Blade Replacement" className="bg-zinc-900 text-zinc-200">Blade Replacement</option>
-                      <option value="Oil Lubrication Refill" className="bg-zinc-900 text-zinc-200">Oil Lubrication Refill</option>
-                      <option value="Compressor Overhaul" className="bg-zinc-900 text-zinc-200">Compressor Overhaul</option>
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-zinc-500 uppercase block text-[10px]">Technician ID</label>
-                    <input
-                      type="text"
-                      value={formTech}
-                      onChange={(e) => setFormTech(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-zinc-500 uppercase block text-[10px]">Health Snapshot</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={formHealth}
-                      onChange={(e) => setFormHealth(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none"
-                    />
-                  </div>
-
-                  <div className="col-span-1 sm:col-span-2 pt-2">
-                    <button
-                      type="submit"
-                      disabled={!backendOnline}
-                      className="w-full flex items-center justify-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2.5 px-4 rounded-md transition-all active:scale-[0.99] cursor-pointer"
-                    >
-                      <Layers className="h-3.5 w-3.5" />
-                      <span>SIGN & COMMIT LOG ENTRY</span>
-                    </button>
-                  </div>
-                </form>
-
-                {formSuccessMessage && (
-                  <div className="p-3 bg-zinc-950 border border-zinc-900 text-zinc-400 rounded-md text-[10px] font-mono">
-                    {formSuccessMessage}
-                  </div>
-                )}
-
-              </div>
-
-            </div>
-
-            {/* MMR Tree Visualization Card */}
-            <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
-              <div className="flex justify-between items-center">
-                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                  <Network className="h-4 w-4 text-zinc-500" />
-                  <span>Ledger Cryptographic DAG (Merkle Mountain Range)</span>
-                </h3>
-                <div className="flex space-x-4 text-[10px] font-mono">
-                  <div className="flex items-center space-x-1.5">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-                    <span className="text-zinc-400">Secure Node</span>
-                  </div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse"></span>
-                    <span className="text-zinc-400">Tampered Path</span>
-                  </div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="h-2.5 w-2.5 border border-dashed border-zinc-500"></span>
-                    <span className="text-zinc-400">Peak Chaining</span>
-                  </div>
-                </div>
-              </div>
-              <p className="text-[11px] text-zinc-450 leading-relaxed font-sans">
-                Below is the dynamic reconstruction of the Merkle Mountain Range (MMR) ledger tree. Leaf nodes represent physical MRO log entries. If the SQLite database is tampered with, the integrity check will identify the mutated leaves and trace the compromised validation path in red up to the root seal.
-              </p>
-
-              <div className="bg-zinc-950/40 border border-zinc-900 rounded-lg p-4 flex items-center justify-center min-h-[300px] overflow-x-auto">
-                {nodes.length === 0 ? (
-                  <div className="text-zinc-550 font-mono text-xs text-center py-12">
-                    <Database className="h-8 w-8 mx-auto mb-2 text-zinc-700 animate-bounce" />
-                    <span>NO AUDIT NODES IN LEDGER. COMMIT LOGS TO BUILD CRYPTOGRAPHIC DAG.</span>
-                  </div>
-                ) : (() => {
-                  const { nodes: mmrNodes, links: mmrLinks } = (() => {
-                    if (!nodes || nodes.length === 0) return { nodes: [], links: [] };
-                    
-                    const nodesMap: any = {};
-                    nodes.forEach((n: any) => {
-                      nodesMap[n.pos] = {
-                        ...n,
-                        children: [] as number[],
-                        parent: null as number | null,
-                        x: 0,
-                        y: 0
-                      };
-                    });
-                    
-                    const stack: any[] = [];
-                    const sortedNodes = [...nodes].sort((a: any, b: any) => a.pos - b.pos);
-                    
-                    sortedNodes.forEach((node: any) => {
-                      const nodeObj = nodesMap[node.pos];
-                      if (nodeObj.is_leaf) {
-                        stack.push(nodeObj);
-                      } else {
-                        if (stack.length >= 2) {
-                          const right = stack.pop();
-                          const left = stack.pop();
-                          nodeObj.children = [left.pos, right.pos];
-                          left.parent = nodeObj.pos;
-                          right.parent = nodeObj.pos;
-                        }
-                        stack.push(nodeObj);
-                      }
-                    });
-                    
-                    const peaks = [...stack];
-                    const leaves = Object.values(nodesMap).filter((n: any) => n.is_leaf).sort((a: any, b: any) => a.pos - b.pos);
-                    const width = 800;
-                    const height = 280;
-                    const paddingX = 50;
-                    const paddingY = 40;
-                    
-                    const leafSpacing = leaves.length > 1 ? (width - paddingX * 2) / (leaves.length - 1) : 0;
-                    leaves.forEach((leaf: any, idx: number) => {
-                      leaf.x = paddingX + idx * leafSpacing;
-                      leaf.y = height - paddingY;
-                    });
-                    
-                    const internalNodes = Object.values(nodesMap).filter((n: any) => !n.is_leaf).sort((a: any, b: any) => a.height - b.height);
-                    internalNodes.forEach((node: any) => {
-                      if (node.children && node.children.length === 2) {
-                        const left = nodesMap[node.children[0]];
-                        const right = nodesMap[node.children[1]];
-                        node.x = (left.x + right.x) / 2;
-                        node.y = height - paddingY - node.height * 55;
-                      }
-                    });
-                    
-                    const tamperedPos = new Set<string | number>();
-                    const leafIdxToPos: Record<number, number> = {};
-                    leaves.forEach((leaf: any, idx: number) => {
-                      const record = ledgerHistory[idx];
-                      const leafIdx = record ? record.leaf_index : (idx + 1);
-                      leaf.leaf_index = leafIdx;
-                      leafIdxToPos[leafIdx] = leaf.pos;
-                    });
-                    
-                    if (verificationResult.verified === false && verificationResult.tampered_indices) {
-                      verificationResult.tampered_indices.forEach((idx: number) => {
-                        const pos = leafIdxToPos[idx];
-                        if (pos) {
-                          tamperedPos.add(pos);
-                        }
-                      });
-                      
-                      const sortedByHeight = Object.values(nodesMap).sort((a: any, b: any) => a.height - b.height);
-                      sortedByHeight.forEach((node: any) => {
-                        if (node.children && node.children.some((cPos: number) => tamperedPos.has(cPos))) {
-                          tamperedPos.add(node.pos);
-                        }
-                      });
-                      
-                      if (peaks.some((p: any) => tamperedPos.has(p.pos))) {
-                        tamperedPos.add("ROOT");
-                      }
-                    }
-                    
-                    const links: any[] = [];
-                    Object.values(nodesMap).forEach((node: any) => {
-                      if (node.children) {
-                        node.children.forEach((cPos: number) => {
-                          const child = nodesMap[cPos];
-                          const isTamperedLink = tamperedPos.has(node.pos) && tamperedPos.has(child.pos);
-                          links.push({
-                            id: `link-${node.pos}-${child.pos}`,
-                            source: { x: node.x, y: node.y },
-                            target: { x: child.x, y: child.y },
-                            isTampered: isTamperedLink
-                          });
-                        });
-                      }
-                    });
-                    
-                    let rootNodeObj: any = null;
-                    if (peaks.length > 1) {
-                      rootNodeObj = {
-                        pos: "ROOT",
-                        hash: rootHash,
-                        is_root: true,
-                        x: width / 2,
-                        y: paddingY,
-                        height: Math.max(...peaks.map((p: any) => p.height)) + 1
-                      };
-                      
-                      peaks.forEach((peak: any) => {
-                        const isTamperedLink = tamperedPos.has("ROOT") && tamperedPos.has(peak.pos);
-                        links.push({
-                          id: `link-ROOT-${peak.pos}`,
-                          source: { x: rootNodeObj.x, y: rootNodeObj.y },
-                          target: { x: peak.x, y: peak.y },
-                          isPeakLink: true,
-                          isTampered: isTamperedLink
-                        });
-                      });
-                    } else if (peaks.length === 1) {
-                      peaks[0].is_root = true;
-                    }
-                    
-                    const finalNodes = Object.values(nodesMap);
-                    if (rootNodeObj) {
-                      finalNodes.push(rootNodeObj);
-                    }
-                    
-                    return {
-                      nodes: finalNodes.map((n: any) => ({
-                        ...n,
-                        isTampered: tamperedPos.has(n.pos)
-                      })),
-                      links
-                    };
-                  })();
-                  
-                  return (
-                    <svg viewBox="0 0 800 280" className="w-full max-w-[800px] h-auto select-none overflow-visible">
-                      {mmrLinks.map((link: any) => (
-                        <line
-                          key={link.id}
-                          x1={link.source.x}
-                          y1={link.source.y}
-                          x2={link.target.x}
-                          y2={link.target.y}
-                          className={`transition-all duration-500 ${
-                            link.isTampered
-                              ? "stroke-red-500/80 stroke-[2px]"
-                              : link.isPeakLink
-                              ? "stroke-zinc-600/50 stroke-[1.5px]"
-                              : "stroke-zinc-700/60 stroke-[1.5px]"
-                          }`}
-                          strokeDasharray={link.isPeakLink ? "4 4" : undefined}
-                        />
-                      ))}
-                      
-                      {mmrNodes.map((node: any) => {
-                        const radius = node.pos === "ROOT" ? 12 : node.is_leaf ? 8 : 10;
-                        const fillClass = node.isTampered
-                          ? "fill-red-950/80 stroke-red-500"
-                          : node.pos === "ROOT"
-                          ? "fill-cyan-950 stroke-cyan-400"
-                          : node.is_leaf
-                          ? "fill-emerald-950/80 stroke-emerald-500"
-                          : "fill-zinc-900 stroke-zinc-500";
-                        
-                        return (
-                          <g key={node.pos} className="group cursor-pointer">
-                            <circle
-                              cx={node.x}
-                              cy={node.y}
-                              r={radius}
-                              className={`transition-all duration-500 stroke-[2px] ${fillClass} hover:stroke-[3px]`}
-                            />
-                            {node.isTampered && (
-                              <circle
-                                cx={node.x}
-                                cy={node.y}
-                                r={radius + 4}
-                                className="fill-none stroke-red-500/35 stroke-[1px] animate-ping"
-                              />
-                            )}
-                            
-                            <text
-                              x={node.x}
-                              y={node.y + (node.is_leaf ? 18 : -16)}
-                              textAnchor="middle"
-                              className={`text-[9px] font-mono font-bold ${
-                                node.isTampered ? "fill-red-400" : "fill-zinc-400"
-                              }`}
-                            >
-                              {node.pos === "ROOT" ? "MMR ROOT" : node.is_leaf ? `Leaf #${node.leaf_index}` : `Pos ${node.pos}`}
-                            </text>
-                            
-                            <title>
-                              {`Node Position: ${node.pos}\nHeight: ${node.height}\nHash: ${node.hash || 'N/A'}\nStatus: ${node.isTampered ? 'COMPROMISED' : 'SECURE'}`}
-                            </title>
-                          </g>
-                        );
-                      })}
-                    </svg>
-                  );
-                })()}
-              </div>
-            </div>
-
-            {/* Audit log table */}
-            <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4 col-span-1 md:col-span-2">
-              <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
-                <Database className="h-4 w-4 text-zinc-500" />
-                <span>Immutable Maintenance Registry Logs</span>
-              </h3>
-              
-              <div className="overflow-x-auto no-scrollbar">
-                <table className="w-full border-collapse text-[11px] text-left font-mono">
-                  <thead>
-                    <tr className="border-b border-zinc-900 text-zinc-550 font-semibold uppercase text-[10px] tracking-wider">
-                      <th className="pb-3 pr-4">Leaf ID</th>
-                      <th className="pb-3 px-4">Timestamp</th>
-                      <th className="pb-3 px-4">Component</th>
-                      <th className="pb-3 px-4">Action Taken</th>
-                      <th className="pb-3 px-4">Technician</th>
-                      <th className="pb-3 px-4">Health</th>
-                      <th className="pb-3 pl-4">Cryptographic Hash</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ledgerHistory.length > 0 ? (
-                      ledgerHistory.map((row) => (
-                        <tr key={row.leaf_index} className="border-b border-zinc-900/60 hover:bg-zinc-900/5 text-zinc-350">
-                          <td className="py-3.5 pr-4 font-bold text-zinc-300">#{String(row.leaf_index).padStart(3, '0')}</td>
-                          <td className="py-3.5 px-4 text-zinc-500 text-[10px]">
-                            {mounted ? new Date(row.timestamp).toLocaleTimeString() : ""}<br/>
-                            {mounted ? new Date(row.timestamp).toLocaleDateString() : ""}
-                          </td>
-                          <td className="py-3.5 px-4 font-bold text-zinc-300">{row.component_id}</td>
-                          <td className="py-3.5 px-4">{row.action_taken}</td>
-                          <td className="py-3.5 px-4 text-zinc-450">{row.technician_id}</td>
-                          <td className="py-3.5 px-4 font-semibold text-zinc-300">{(row.health_snapshot * 100).toFixed(0)}%</td>
-                          <td className="py-3.5 pl-4 text-zinc-500 text-[9.5px] select-all font-mono" title={row.node_hash}>
-                            {row.node_hash ? `${row.node_hash.substring(0, 10)}...${row.node_hash.substring(row.node_hash.length - 10)}` : "N/A"}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={7} className="py-8 text-center text-zinc-550 font-mono">
-                          NO ENTRIES COMMITTED. SIMULATE TELEMETRY DIAGNOSTICS TO TRIGGER SYSTEM LOGS.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-            </div>
-
-          </div>
-        )}
-
-      </main>
-
-    </div>
+    <SentinelGateway
+      selectedEngineId={selectedEngineId}
+      setSelectedEngineId={setSelectedEngineId}
+      viewState={viewState}
+      setViewState={setViewState}
+      planes={planes}
+      setSelectedPlaneId={setSelectedPlaneId}
+      engines={engines}
+      isStreaming={isStreaming}
+      setIsStreaming={setIsStreaming}
+      streamingRate={streamingRate}
+      handleRateChange={handleRateChange}
+      streamNextCycle={streamNextCycle}
+      isInferring={isInferring}
+      backendOnline={backendOnline}
+      activeTab={activeTab}
+      setActiveTab={setActiveTab}
+      hoveredSensor={hoveredSensor}
+      setHoveredSensor={setHoveredSensor}
+      verifyLedgerIntegrity={verifyLedgerIntegrity}
+      isVerifying={isVerifying}
+      simulateTampering={simulateTampering}
+      verificationResult={verificationResult}
+      rootHash={rootHash}
+      formEngine={formEngine}
+      setFormEngine={setFormEngine}
+      formAction={formAction}
+      setFormAction={setFormAction}
+      formStation={formStation}
+      setFormStation={setFormStation}
+      formHealth={formHealth}
+      setFormHealth={setFormHealth}
+      formSuccessMessage={formSuccessMessage}
+      handleManualAppend={handleManualAppend}
+      nodes={nodes}
+      ledgerHistory={ledgerHistory}
+      mounted={mounted}
+    />
   );
 }
