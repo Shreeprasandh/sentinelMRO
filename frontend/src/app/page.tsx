@@ -477,12 +477,10 @@ export default function Dashboard() {
                     const p1 = getControlPoint(currentDest, nextDest);
                     const p2 = HUB_COORDINATES[nextDest];
 
-                    const isTouchdownEngineCritical = engHealth < 0.30;
-
-                    nextPlanes[id] = {
+  nextPlanes[id] = {
                       ...plane,
-                      status: isTouchdownEngineCritical ? "Maintenance" : "Ready",
-                      phase: isTouchdownEngineCritical ? "Maintenance" : "Landed",
+                      status: "Maintenance", // Always transition to maintenance immediately upon landing
+                      phase: "Maintenance",
                       progress: 0,
                       altitude: 0,
                       speed: 0,
@@ -1003,11 +1001,11 @@ export default function Dashboard() {
 
             if (nextProgress >= 100) {
               nextProgress = 0;
-              nextPhase = result.health_score < 0.30 ? "Maintenance" : "Landed";
+              nextPhase = "Maintenance"; // Always transition to maintenance immediately upon landing
               nextAltitude = 0;
               nextSpeed = 0;
               nextFuel = 100;
-              plane.status = result.health_score < 0.30 ? "Maintenance" : "Ready";
+              plane.status = "Maintenance";
             } else if (nextProgress < 15) {
               nextPhase = "Takeoff";
               nextAltitude = Math.round(nextProgress * 2000);
