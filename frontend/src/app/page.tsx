@@ -646,7 +646,7 @@ export default function Dashboard() {
     const interval = setInterval(() => {
       console.log("Triggering auto-federated synchronization round...");
       runFederatedRound();
-    }, 30000);
+    }, 60000);
     return () => clearInterval(interval);
   }, [backendOnline]);
 

@@ -578,7 +578,7 @@ export function HangarDashboard({
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
               <div className="space-y-1">
                 <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block">
-                  Autonomic Parameter Synchronization (Every 30s)
+                  Autonomic Parameter Synchronization (Every 60s)
                 </span>
                 <h4 className="text-sm font-bold text-zinc-200 uppercase flex items-center space-x-2 font-mono">
                   <Shield className="h-4 w-4 text-zinc-500" />
