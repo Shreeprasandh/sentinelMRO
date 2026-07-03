@@ -183,7 +183,7 @@ class FederatedSimulationState:
             
         # 6. Wait for all updates
         try:
-            await asyncio.wait_for(pending_rounds[round_id]["event"].wait(), timeout=30.0)
+            await asyncio.wait_for(pending_rounds[round_id]["event"].wait(), timeout=60.0)
         except asyncio.TimeoutError:
             if round_id in pending_rounds:
                 del pending_rounds[round_id]
@@ -203,13 +203,15 @@ class FederatedSimulationState:
                     param.data.add_(station_weights[st][i])
                 param.data.div_(len(expected_stations))
                 
-        # 8. Evaluate updated global model
+        # 8. Evaluate updated global model on a subset of test dataset (limit 10 batches) to optimize CPU time
         self.global_model.eval()
         global_test_loss = 0.0
         test_samples = 0
         criterion = nn.MSELoss()
         with torch.no_grad():
-            for batch_x, batch_y in self.test_loader:
+            for idx, (batch_x, batch_y) in enumerate(self.test_loader):
+                if idx >= 10:
+                    break
                 batch_x, batch_y = batch_x.to(DEVICE), batch_y.to(DEVICE)
                 pred = self.global_model(batch_x)
                 loss = criterion(pred, batch_y)
@@ -345,8 +347,11 @@ def train_local_station(station_id: str, global_weights_list: list) -> tuple[lis
     epoch_loss = 0.0
     total_samples = 0
     
+    # Subsample training loader (limit 5 batches) to avoid CPU event-loop blockages
     for _ in range(LOCAL_EPOCHS):
-        for batch_x, batch_y in loader:
+        for idx, (batch_x, batch_y) in enumerate(loader):
+            if idx >= 5:
+                break
             batch_x, batch_y = batch_x.to(DEVICE), batch_y.to(DEVICE)
             optimizer.zero_grad()
             pred = local_model(batch_x)
