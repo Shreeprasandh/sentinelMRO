@@ -2,7 +2,7 @@ import os
 import json
 import hashlib
 import sqlite3
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Header, HTTPException, Depends, Response
 from pydantic import BaseModel
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from database import get_db
@@ -131,6 +131,36 @@ def rebuild_mmr_tree(conn):
             curr = sha256_hash(peak['hash'] + curr)
         return curr
 
+def get_root_from_stored_hashes(conn):
+    """Calculates the MMR root hash in-memory from stored node_hashes without database modifications."""
+    cursor = conn.cursor()
+    cursor.execute("SELECT node_hash FROM mro_ledger ORDER BY leaf_index ASC")
+    hashes = [r["node_hash"] for r in cursor.fetchall()]
+    if not hashes:
+        return ""
+        
+    stack = []
+    next_pos = 1
+    for h in hashes:
+        stack.append({'pos': next_pos, 'height': 0, 'hash': h})
+        next_pos += 1
+        while len(stack) >= 2 and stack[-1]['height'] == stack[-2]['height']:
+            right = stack.pop()
+            left = stack.pop()
+            parent_hash = sha256_hash(left['hash'] + right['hash'])
+            stack.append({'pos': next_pos, 'height': right['height'] + 1, 'hash': parent_hash})
+            next_pos += 1
+            
+    if not stack:
+        return ""
+    if len(stack) == 1:
+        return stack[0]['hash']
+    
+    curr = stack[-1]['hash']
+    for peak in reversed(stack[:-1]):
+        curr = sha256_hash(peak['hash'] + curr)
+    return curr
+
 # Endpoints
 @router.get("/keys")
 def get_station_keys():
@@ -138,8 +168,11 @@ def get_station_keys():
     return STATION_KEYS
 
 @router.get("/history")
-def get_ledger_history(db = Depends(get_db)):
+def get_ledger_history(response: Response, db = Depends(get_db)):
     """Returns all rows in the ledger and the current MMR root."""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     cursor = db.cursor()
     cursor.execute("SELECT leaf_index, timestamp, component_id, action_taken, technician_id, health_snapshot, node_hash FROM mro_ledger ORDER BY leaf_index ASC")
     records = [dict(row) for row in cursor.fetchall()]
@@ -148,11 +181,8 @@ def get_ledger_history(db = Depends(get_db)):
     cursor.execute("SELECT pos, hash, height, is_leaf FROM mmr_nodes ORDER BY pos ASC")
     nodes = [dict(row) for row in cursor.fetchall()]
     
-    # Get root hash by combining current peaks
-    # Let's find peaks from current nodes.
-    # In MMR, the peaks are the nodes that don't have parent nodes.
-    # We can rebuild the peaks using the stack method
-    root_hash = rebuild_mmr_tree(db)
+    # Use dry-run calculation to avoid auto-healing database tampering
+    root_hash = get_root_from_stored_hashes(db)
     
     return {
         "records": records,
@@ -202,11 +232,14 @@ def append_ledger_record(
     }
 
 @router.get("/verify")
-def verify_ledger(db = Depends(get_db)):
+def verify_ledger(response: Response, db = Depends(get_db)):
     """
     Verifies ecosystem integrity by comparing the saved node_hashes in mro_ledger
     with the computed hashes based on raw column data, and rebuilding the MMR.
     """
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     cursor = db.cursor()
     cursor.execute("SELECT leaf_index, timestamp, component_id, action_taken, technician_id, health_snapshot, node_hash FROM mro_ledger ORDER BY leaf_index ASC")
     rows = cursor.fetchall()

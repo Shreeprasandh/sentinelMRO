@@ -177,7 +177,10 @@ class FederatedSimulationState:
                 continue
                 
             # Clone global model for local training
-            local_model = copy.deepcopy(self.global_model).to(DEVICE)
+            # Instantiate local model and load weights to bypass copy.deepcopy weight_norm limitations
+            num_channels = [32, 32, 32, 32]
+            local_model = TCNModel(input_size=14, output_size=1, num_channels=num_channels, kernel_size=3, dropout=0.2).to(DEVICE)
+            local_model.load_state_dict(self.global_model.state_dict())
             local_model.train()
             
             optimizer = optim.Adam(local_model.parameters(), lr=0.001)

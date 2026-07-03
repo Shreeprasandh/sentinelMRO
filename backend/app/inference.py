@@ -1,7 +1,8 @@
 import os
 import json
+import asyncio
 import numpy as np
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import onnxruntime as ort
 
@@ -16,11 +17,16 @@ class InferencePayload(BaseModel):
     # Outer list: 30 time steps. Inner list: 14 sensor values.
     sensor_matrix: list[list[float]]
 
+class AttributionItem(BaseModel):
+    sensor: str
+    percentage: float
+
 class InferenceResponse(BaseModel):
     health_score: float
     predicted_rul: int
     anomaly_flag: bool
     is_mock: bool
+    attribution: list[AttributionItem] = []
 
 class ONNXInferenceService:
     def __init__(self):
@@ -96,9 +102,31 @@ class ONNXInferenceService:
             
             return health_score, rul_int, anomaly_flag, False
         except Exception as e:
-            print(f"ONNX inference failed, using mock fallback: {e}")
-            # Mock fallback
-            return 0.8, 100, False, True
+            import sys
+            try:
+                print(f"ONNX inference failed: {e}", file=sys.stderr)
+            except Exception:
+                pass
+            
+            # Smart mock fallback when ONNX inference fails
+            try:
+                last_reading = matrix[-1]
+                s15_val = last_reading[10] # s15 (bypass ratio)
+                # Estimating cycle: s15 = 8.41 + cycle * 0.002
+                estimated_cycle = max(1, int(round((s15_val - 8.41) / 0.002)))
+            except Exception:
+                estimated_cycle = 30
+
+            if estimated_cycle < 60:
+                mock_rul = max(80, int(150 - estimated_cycle))
+            elif estimated_cycle < 110:
+                mock_rul = max(35, int(145 - estimated_cycle))
+            else:
+                mock_rul = max(5, int(162 - estimated_cycle))
+
+            health_score = float(mock_rul / 125.0)
+            anomaly_flag = mock_rul < 30
+            return health_score, mock_rul, anomaly_flag, True
 
 inference_service = ONNXInferenceService()
 

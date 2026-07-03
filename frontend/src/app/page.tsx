@@ -12,10 +12,10 @@ import {
   RefreshCw, 
   Layers, 
   User, 
-  Clock, 
   Terminal,
   Settings,
-  TrendingDown
+  Lock,
+  FileText
 } from "lucide-react";
 import {
   LineChart,
@@ -49,8 +49,8 @@ interface LedgerRecord {
   leaf_index: number;
   timestamp: string;
   component_id: string;
-  action_taken: str;
-  technician_id: str;
+  action_taken: string;
+  technician_id: string;
   health_snapshot: number;
   node_hash: string;
 }
@@ -65,11 +65,11 @@ interface FederatedRound {
 
 const BACKEND_URL = "http://localhost:8000";
 
-// Pre-seeded local engine simulators
+// Pre-seeded local engine simulators with deterministic formulas to avoid SSR hydration mismatches
 const INITIAL_ENGINES: Record<string, EngineData> = {
   "ENG-001": {
     id: "ENG-001",
-    name: "HPC Turbofan Alpha",
+    name: "Aero-Engine Alpha (HPC)",
     status: "Nominal",
     health: 0.96,
     rul: 120,
@@ -79,14 +79,14 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
       return {
         cycle: c,
         rul: 125,
-        sensor_11: 1500 + c * 0.1 + Math.random() * 2,
-        sensor_12: 8.4 + c * 0.001 + Math.random() * 0.01,
+        sensor_11: 1585.0 + c * 0.08 * 0.8 + ((i * 3) % 5) * 0.2,
+        sensor_12: 8.40 + c * 0.0007 * 0.8 + ((i * 7) % 6) * 0.0005,
       };
     })
   },
   "ENG-002": {
     id: "ENG-002",
-    name: "HPC Turbofan Bravo",
+    name: "Aero-Engine Bravo (HPC)",
     status: "Warning",
     health: 0.52,
     rul: 65,
@@ -96,14 +96,14 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
       return {
         cycle: c,
         rul: 125 - (c - 50) * 1.2,
-        sensor_11: 1508 + c * 0.25 + Math.random() * 3,
-        sensor_12: 8.42 + c * 0.002 + Math.random() * 0.01,
+        sensor_11: 1585.0 + c * 0.08 * 1.1 + ((i * 4) % 6) * 0.2,
+        sensor_12: 8.40 + c * 0.0007 * 1.1 + ((i * 8) % 5) * 0.0005,
       };
     })
   },
   "ENG-003": {
     id: "ENG-003",
-    name: "HPC Turbofan Charlie",
+    name: "Aero-Engine Charlie (HPC)",
     status: "Critical",
     health: 0.18,
     rul: 22,
@@ -113,8 +113,8 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
       return {
         cycle: c,
         rul: 60 - (c - 110) * 1.4,
-        sensor_11: 1530 + c * 0.4 + Math.random() * 4,
-        sensor_12: 8.52 + c * 0.003 + Math.random() * 0.02,
+        sensor_11: 1585.0 + c * 0.08 * 1.6 + ((i * 5) % 7) * 0.2,
+        sensor_12: 8.40 + c * 0.0007 * 1.6 + ((i * 9) % 6) * 0.0005,
       };
     })
   }
@@ -122,6 +122,10 @@ const INITIAL_ENGINES: Record<string, EngineData> = {
 
 export default function Dashboard() {
   const [mounted, setMounted] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [loginTechId, setLoginTechId] = useState("TECH-948");
+  const [loginPin, setLoginPin] = useState("7700");
+  const [loginError, setLoginError] = useState("");
   const [engines, setEngines] = useState<Record<string, EngineData>>(INITIAL_ENGINES);
   const [selectedEngineId, setSelectedEngineId] = useState<string>("ENG-001");
   const [activeTab, setActiveTab] = useState<"fleet" | "federated" | "ledger">("fleet");
@@ -154,6 +158,20 @@ export default function Dashboard() {
   const [formStation, setFormStation] = useState("STATION_001");
   const [formSuccessMessage, setFormSuccessMessage] = useState("");
 
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (loginTechId.trim() === "") {
+      setLoginError("Technician ID is required.");
+      return;
+    }
+    if (loginPin === "7700") {
+      setIsLoggedIn(true);
+      setLoginError("");
+    } else {
+      setLoginError("Invalid Security Clearance PIN.");
+    }
+  };
+
   useEffect(() => {
     setMounted(true);
     checkBackendHealth();
@@ -176,7 +194,7 @@ export default function Dashboard() {
 
   const fetchLedgerHistory = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/ledger/history`);
+      const res = await fetch(`${BACKEND_URL}/api/v1/ledger/history?t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setLedgerHistory(data.records || []);
@@ -190,7 +208,7 @@ export default function Dashboard() {
 
   const fetchFederatedHistory = async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/federated/history`);
+      const res = await fetch(`${BACKEND_URL}/api/v1/federated/history?t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setFederatedHistory(data || []);
@@ -223,7 +241,7 @@ export default function Dashboard() {
   const verifyLedgerIntegrity = async () => {
     setIsVerifying(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/v1/ledger/verify`);
+      const res = await fetch(`${BACKEND_URL}/api/v1/ledger/verify?t=${Date.now()}`, { cache: 'no-store' });
       if (res.ok) {
         const data = await res.json();
         setVerificationResult({
@@ -261,14 +279,14 @@ export default function Dashboard() {
         body: JSON.stringify({
           leaf_index: targetIdx,
           component_id: "TAMPERED-ENG",
-          action_taken: "MALICIOUS DATA INJECTION",
+          action_taken: "MALICIOUS INTRUSION DATA",
           technician_id: "INTRUDER-99",
           health_snapshot: 0.0
         })
       });
       
       if (res.ok) {
-        alert(`Malicious update successfully injected into SQLite for Leaf #${targetIdx}! The node hashes and Merkle structure remain unchanged. Click 'Verify Ecosystem Integrity' to test.`);
+        alert(`Malicious update successfully injected into SQLite for Leaf #${targetIdx}! The node hashes and Merkle structure remain unchanged. Click 'Run Integrity Validation' to verify.`);
         fetchLedgerHistory();
       }
     } catch (e) {
@@ -283,11 +301,9 @@ export default function Dashboard() {
     const timestamp = new Date().toISOString();
     const healthNum = parseFloat(formHealth);
     
-    // 1. Construct the payload message structure matching the backend verification
     const message = `${timestamp}|${formEngine}|${formAction}|${formTech}|${healthNum}`;
     
     try {
-      // 2. Fetch cryptographic signature from the backend signing helper using station private key
       const signRes = await fetch(`${BACKEND_URL}/api/v1/ledger/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -303,7 +319,6 @@ export default function Dashboard() {
       
       const { signature } = await signRes.json();
       
-      // 3. Post to append route with signature in headers (simulating mTLS validation)
       const appendRes = await fetch(`${BACKEND_URL}/api/v1/ledger/append`, {
         method: "POST",
         headers: {
@@ -322,8 +337,68 @@ export default function Dashboard() {
       
       if (appendRes.ok) {
         const data = await appendRes.json();
-        setFormSuccessMessage(`Record appended at Leaf Index ${data.leaf_index}. Root Hash updated!`);
+        setFormSuccessMessage(`Record committed at Leaf Index #${data.leaf_index}. Root Hash updated.`);
         fetchLedgerHistory();
+
+        // --- CLOSED LOOP SIMULATION: UPDATE ENGINE STATE IN UI ---
+        setEngines(prev => {
+          const target = prev[formEngine];
+          if (!target) return prev;
+          
+          let newCycle = target.cycle;
+          let newHealth = target.health;
+          let newRul = target.rul;
+          let newStatus: "Nominal" | "Warning" | "Critical" = target.status;
+          
+          if (formAction === "Compressor Overhaul") {
+            newCycle = 1;
+            newHealth = healthNum;
+            newRul = 125;
+            newStatus = "Nominal";
+          } else if (formAction === "Blade Replacement") {
+            newCycle = 30;
+            newHealth = healthNum;
+            newRul = 115;
+            newStatus = "Nominal";
+          } else if (formAction === "Oil Lubrication Refill") {
+            newCycle = Math.max(1, target.cycle - 25);
+            newHealth = Math.min(0.95, target.health + 0.25);
+            newRul = Math.min(125, target.rul + 30);
+            newStatus = newRul < 30 ? "Critical" : newRul < 70 ? "Warning" : "Nominal";
+          } else if (formAction === "Sensor Calibration") {
+            newCycle = target.cycle;
+            newHealth = Math.min(0.96, target.health + 0.05);
+            newRul = Math.min(125, target.rul + 5);
+            newStatus = newRul < 30 ? "Critical" : newRul < 70 ? "Warning" : "Nominal";
+          }
+          
+          // Re-generate history starting from the new cycle baseline
+          const degradationFactor = formEngine === "ENG-003" ? 1.6 : formEngine === "ENG-002" ? 1.1 : 0.8;
+          const length = 30;
+          const historyStartCycle = Math.max(1, newCycle - length + 1);
+          
+          const newHistory = Array.from({ length }, (_, idx) => {
+            const c = historyStartCycle + idx;
+            return {
+              cycle: c,
+              rul: Math.min(125, newRul - (length - 1 - idx) * (1.2 * degradationFactor)),
+              sensor_11: 1585.0 + c * 0.08 * degradationFactor + ((idx * 3) % 5) * 0.2,
+              sensor_12: 8.40 + c * 0.0007 * degradationFactor + ((idx * 7) % 6) * 0.0005,
+            };
+          });
+          
+          return {
+            ...prev,
+            [formEngine]: {
+              ...target,
+              cycle: newCycle,
+              health: newHealth,
+              rul: newRul,
+              status: newStatus,
+              history: newHistory
+            }
+          };
+        });
       } else {
         const err = await appendRes.json();
         alert("Verification failed: " + err.detail);
@@ -338,35 +413,30 @@ export default function Dashboard() {
     const engine = engines[engineId];
     const nextCycle = engine.cycle + 1;
     
-    // Simulate degradation trends
-    // Core speed climbs slightly, bypass ratio increases as engine wears out
     const degradationFactor = engineId === "ENG-003" ? 1.6 : engineId === "ENG-002" ? 1.1 : 0.8;
-    const nextSensor11 = 1500 + nextCycle * 0.2 * degradationFactor + Math.random() * 3;
-    const nextSensor12 = 8.4 + nextCycle * 0.002 * degradationFactor + Math.random() * 0.01;
+    const nextSensor11 = 1585.0 + nextCycle * 0.08 * degradationFactor + Math.random() * 0.5;
+    const nextSensor12 = 8.40 + nextCycle * 0.0007 * degradationFactor + Math.random() * 0.002;
     
-    // We construct a mock 30x14 matrix representing the last 30 cycles
-    // To make it fully functional for backend inference:
-    // We populate the 14 sensors with realistic mock variations
+    // Aligned with actual C-MAPSS ranges (s2, s3, s4, s7, s8, s9, s11, s12, s13, s14, s15, s17, s20, s21)
     const simulatedMatrix = Array.from({ length: 30 }, (_, index) => {
       const cycleIdx = nextCycle - 29 + index;
-      const progress = cycleIdx / 150.0;
+      const effective_cycle = cycleIdx * degradationFactor;
       
-      // Generate 14 sensors
       return [
-        518.67 + Math.random(), // s2
-        554.25 + cycleIdx * 0.05 + Math.random(), // s3
-        1398.9 + cycleIdx * 0.15 + Math.random(), // s4
-        554.05 - cycleIdx * 0.08 + Math.random(), // s7
-        2388.0 + Math.random() * 0.05, // s8
-        9044.0 + cycleIdx * 0.2 + Math.random() * 2, // s9
-        47.47 + cycleIdx * 0.01 + Math.random() * 0.05, // s11
-        521.66 - cycleIdx * 0.08 + Math.random(), // s12
-        2388.02 + Math.random() * 0.04, // s13
-        8138.2 + cycleIdx * 0.15 + Math.random() * 2, // s14
-        8.41 + cycleIdx * 0.002 + Math.random() * 0.01, // s15
-        390.5 + cycleIdx * 0.1 + Math.random(), // s17
-        39.06 - cycleIdx * 0.01 + Math.random() * 0.05, // s20
-        23.4 - cycleIdx * 0.005 + Math.random() * 0.05 // s21
+        642.0 + (effective_cycle * 0.007) + Math.random() * 0.1,    // s2
+        1585.0 + (effective_cycle * 0.08) + Math.random() * 0.5,    // s3
+        1400.0 + (effective_cycle * 0.15) + Math.random() * 0.5,    // s4
+        554.0 - (effective_cycle * 0.015) + Math.random() * 0.05,   // s7
+        2388.0 + (effective_cycle * 0.001) + Math.random() * 0.01,  // s8
+        9050.0 + (effective_cycle * 0.25) + Math.random() * 1.0,    // s9
+        47.3 + (effective_cycle * 0.005) + Math.random() * 0.02,    // s11
+        522.0 - (effective_cycle * 0.012) + Math.random() * 0.05,   // s12
+        2388.0 + (effective_cycle * 0.001) + Math.random() * 0.01,  // s13
+        8135.0 + (effective_cycle * 0.18) + Math.random() * 0.5,    // s14
+        8.40 + (effective_cycle * 0.0007) + Math.random() * 0.002,  // s15
+        392.0 + (effective_cycle * 0.025) + Math.random() * 0.2,    // s17
+        38.95 - (effective_cycle * 0.003) + Math.random() * 0.02,   // s20
+        23.4 - (effective_cycle * 0.002) + Math.random() * 0.02     // s21
       ];
     });
 
@@ -380,9 +450,8 @@ export default function Dashboard() {
       if (res.ok) {
         const result = await res.json();
         
-        // Update history
         const newHistory = [...engine.history];
-        if (newHistory.length >= 50) newHistory.shift(); // keep chart focused
+        if (newHistory.length >= 50) newHistory.shift();
         newHistory.push({
           cycle: nextCycle,
           rul: result.predicted_rul,
@@ -390,7 +459,6 @@ export default function Dashboard() {
           sensor_12: nextSensor12
         });
 
-        // Set state
         const updatedEngine: EngineData = {
           ...engine,
           cycle: nextCycle,
@@ -405,7 +473,6 @@ export default function Dashboard() {
           [engineId]: updatedEngine
         }));
 
-        // If an anomaly is detected, automatically append to the ledger!
         if (result.anomaly_flag) {
           triggerAutoLedgerAppend(engineId, result.health_score, result.predicted_rul);
         }
@@ -419,9 +486,9 @@ export default function Dashboard() {
 
   const triggerAutoLedgerAppend = async (engineId: string, health: number, rul: number) => {
     const timestamp = new Date().toISOString();
-    const action = `Automated Inspection Flag (RUL: ${rul})`;
-    const tech = "EDGE-AI-AGENT";
-    const station = "STATION_002"; // High stress node
+    const action = `Auto Inspection Flag (RUL: ${rul})`;
+    const tech = "SYSTEM-DIAGNOSTIC";
+    const station = "STATION_002";
     const message = `${timestamp}|${engineId}|${action}|${tech}|${health}`;
 
     try {
@@ -457,85 +524,176 @@ export default function Dashboard() {
 
   const activeEngine = engines[selectedEngineId];
 
-  // Helper colors
+  // Colors mapping for minimalist UI
   const getStatusColor = (status: string) => {
-    if (status === "Nominal") return "text-emerald-400 bg-emerald-500/10 border-emerald-500/30";
-    if (status === "Warning") return "text-amber-400 bg-amber-500/10 border-amber-500/30";
-    return "text-red-400 bg-red-500/10 border-red-500/30 animate-pulse";
+    if (status === "Nominal") return "text-emerald-500 font-mono";
+    if (status === "Warning") return "text-amber-500 font-mono";
+    return "text-red-500 font-mono animate-pulse";
   };
 
   const getHealthBarColor = (health: number) => {
-    if (health >= 0.75) return "bg-emerald-500 shadow-emerald-500/50";
-    if (health >= 0.35) return "bg-amber-500 shadow-amber-500/50";
-    return "bg-red-500 shadow-red-500/50 animate-pulse";
+    if (health >= 0.75) return "bg-emerald-500";
+    if (health >= 0.35) return "bg-amber-500";
+    return "bg-red-500 animate-pulse";
   };
 
+  if (!isLoggedIn) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-[85vh] p-4 bg-zinc-950">
+        <div className="w-full max-w-sm p-8 bg-zinc-900/10 border border-zinc-900 rounded-lg shadow-2xl backdrop-blur-md space-y-8">
+          
+          {/* Typographical Branding */}
+          <div className="space-y-1">
+            <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-[0.3em] block">
+              AERO-PROPULSION SYSTEMS
+            </span>
+            <h1 className="text-xl font-bold tracking-wider text-zinc-100 uppercase font-sans">
+              SENTINEL<span className="text-zinc-500 font-light">MRO</span>
+            </h1>
+            <p className="text-[11px] text-zinc-400 font-sans">
+              Maintenance, Repair & Overhaul Gateway
+            </p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-5">
+            {loginError && (
+              <div className="p-3 bg-red-950/20 border border-red-500/20 rounded-md text-[11px] text-red-400 text-center font-mono">
+                {loginError}
+              </div>
+            )}
+            
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block">
+                Technician ID
+              </label>
+              <input
+                type="text"
+                value={loginTechId}
+                onChange={(e) => setLoginTechId(e.target.value)}
+                placeholder="TECH-000"
+                className="w-full bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-zinc-200 focus:border-zinc-700 outline-none text-xs font-mono transition-colors rounded-md"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest block">
+                Security clearance PIN
+              </label>
+              <input
+                type="password"
+                value={loginPin}
+                onChange={(e) => setLoginPin(e.target.value)}
+                placeholder="••••"
+                className="w-full bg-zinc-950 border border-zinc-850 px-4 py-2.5 text-zinc-200 focus:border-zinc-700 outline-none text-xs font-mono tracking-widest text-center transition-colors rounded-md"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-2.5 bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-mono font-bold uppercase tracking-widest transition-all active:scale-[0.98] cursor-pointer rounded-md"
+            >
+              Access Gateway
+            </button>
+          </form>
+
+          {/* Minimal security indicators */}
+          <div className="text-[9px] font-mono text-zinc-500 flex justify-between items-center border-t border-zinc-900/80 pt-5">
+            <span>CLEARANCE: LEVEL-2 (PIN: 7700)</span>
+            <span>SECURE GATEWAY</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6">
+    <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full p-4 md:p-6 space-y-6 bg-zinc-950 text-zinc-100 select-none">
+      <style dangerouslySetInnerHTML={{__html: `
+        html, body, :root {
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
+        }
+        html::-webkit-scrollbar, body::-webkit-scrollbar {
+          display: none !important;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none !important;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none !important;
+          scrollbar-width: none !important;
+        }
+      `}} />
       
       {/* 1. Header with System Badges */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-800 pb-5 gap-4">
-        <div>
+      <header className="flex flex-col md:flex-row md:items-center justify-between border-b border-zinc-900 pb-5 gap-4">
+        <div className="space-y-1">
           <div className="flex items-center space-x-2">
-            <Cpu className="h-7 w-7 text-indigo-400 animate-spin-slow" />
-            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-zinc-50 via-zinc-100 to-indigo-300 bg-clip-text text-transparent">
-              SentinelMRO Command Center
-            </h1>
+            <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.25em] block">
+              Prognostics & Registry Control
+            </span>
           </div>
-          <p className="text-sm text-zinc-400 mt-1">
-            Decentralized Edge-AI Diagnostics & Cryptographic Merkle Mountain Range Audit Ledger
-          </p>
+          <h1 className="text-2xl font-bold tracking-wider text-zinc-100 uppercase">
+            SENTINEL<span className="text-zinc-500 font-light">MRO</span>
+          </h1>
         </div>
 
-        <div className="flex items-center space-x-3 text-xs">
-          <div className={`flex items-center space-x-2 border rounded-full px-3 py-1 bg-zinc-900 ${
-            backendOnline ? "border-emerald-500/30 text-emerald-400" : "border-red-500/30 text-red-400"
-          }`}>
-            <span className={`h-2 w-2 rounded-full ${backendOnline ? "bg-emerald-400" : "bg-red-400 animate-ping"}`} />
-            <span>API GATEWAY: {backendOnline ? "ONLINE" : "OFFLINE"}</span>
+        <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-zinc-400">
+          <div className={`flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${backendOnline ? "bg-emerald-500 animate-pulse" : "bg-red-500 animate-ping"}`} />
+            <span className="uppercase">Gateway: {backendOnline ? "Online" : "Offline"}</span>
           </div>
 
-          <div className="flex items-center space-x-2 border border-indigo-500/30 rounded-full px-3 py-1 bg-zinc-900 text-indigo-400">
-            <Layers className="h-3 w-3" />
-            <span>MMR LEAVES: {ledgerHistory.length}</span>
+          <div className="flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md">
+            <Layers className="h-3 w-3 text-zinc-500" />
+            <span>LEDGER ENTRIES: {ledgerHistory.length}</span>
           </div>
+
+          <div className="flex items-center space-x-1.5 border border-zinc-900 px-3 py-1 bg-zinc-900/10 rounded-md">
+            <User className="h-3 w-3 text-zinc-500" />
+            <span className="uppercase">{loginTechId}</span>
+          </div>
+
+          <button 
+            onClick={() => setIsLoggedIn(false)}
+            className="border border-zinc-800 hover:border-zinc-650 hover:bg-zinc-900/20 px-3 py-1 rounded-md text-zinc-350 transition-all cursor-pointer"
+          >
+            LOG OUT
+          </button>
         </div>
       </header>
 
       {/* Navigation tabs */}
-      <div className="flex border-b border-zinc-800">
+      <div className="flex border-b border-zinc-900 text-xs font-mono">
         <button 
           onClick={() => setActiveTab("fleet")}
-          className={`px-5 py-3 text-sm font-medium border-b-2 transition-all ${
+          className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
             activeTab === "fleet" 
-              ? "border-indigo-500 text-indigo-400 bg-indigo-500/5" 
-              : "border-transparent text-zinc-400 hover:text-zinc-200"
+              ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          <Activity className="h-4 w-4 inline mr-2" />
-          Fleet Control & Telemetry
+          01 / Fleet Telemetry
         </button>
         <button 
           onClick={() => setActiveTab("federated")}
-          className={`px-5 py-3 text-sm font-medium border-b-2 transition-all ${
+          className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
             activeTab === "federated" 
-              ? "border-indigo-500 text-indigo-400 bg-indigo-500/5" 
-              : "border-transparent text-zinc-400 hover:text-zinc-200"
+              ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          <Cpu className="h-4 w-4 inline mr-2" />
-          Federated Training (FedProx & LDP)
+          02 / Fleet Calibration
         </button>
         <button 
           onClick={() => setActiveTab("ledger")}
-          className={`px-5 py-3 text-sm font-medium border-b-2 transition-all ${
+          className={`px-5 py-3 border-b-2 transition-all cursor-pointer uppercase tracking-wider ${
             activeTab === "ledger" 
-              ? "border-indigo-500 text-indigo-400 bg-indigo-500/5" 
-              : "border-transparent text-zinc-400 hover:text-zinc-200"
+              ? "border-zinc-300 text-zinc-200 bg-zinc-900/10 font-bold" 
+              : "border-transparent text-zinc-500 hover:text-zinc-300"
           }`}
         >
-          <Shield className="h-4 w-4 inline mr-2" />
-          Cryptographic Audit Ledger (MMR)
+          03 / Ledger Registry
         </button>
       </div>
 
@@ -548,46 +706,46 @@ export default function Dashboard() {
             
             {/* Left: Active Components List */}
             <div className="space-y-4 lg:col-span-1">
-              <h2 className="text-lg font-bold text-zinc-300 flex items-center space-x-2">
-                <Settings className="h-4 w-4 text-indigo-400" />
-                <span>Active Aircraft Components</span>
-              </h2>
+              <div className="flex items-center space-x-2">
+                <Settings className="h-3.5 w-3.5 text-zinc-550" />
+                <h2 className="text-xs font-mono uppercase tracking-widest text-zinc-400">Active Engine Registry</h2>
+              </div>
               
               <div className="space-y-3">
                 {Object.values(engines).map((eng) => (
                   <div
                     key={eng.id}
                     onClick={() => setSelectedEngineId(eng.id)}
-                    className={`p-4 rounded-xl border cursor-pointer transition-all ${
+                    className={`p-4 rounded-lg border cursor-pointer transition-all ${
                       selectedEngineId === eng.id 
-                        ? "bg-zinc-900 border-indigo-500 shadow-lg shadow-indigo-500/10 scale-[1.02]" 
-                        : "bg-zinc-900/60 border-zinc-800 hover:border-zinc-700"
+                        ? "bg-zinc-900/20 border-zinc-700 shadow-lg scale-[1.01]" 
+                        : "bg-zinc-900/5 border-zinc-900 hover:border-zinc-800"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-bold text-zinc-100">{eng.id}</h3>
-                      <span className={`text-xs px-2.5 py-0.5 rounded-full border font-semibold ${getStatusColor(eng.status)}`}>
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <h3 className="font-bold text-zinc-200">{eng.id}</h3>
+                      <span className={`text-[10px] uppercase font-bold ${getStatusColor(eng.status)}`}>
                         {eng.status}
                       </span>
                     </div>
-                    <p className="text-xs text-zinc-400 mt-1">{eng.name}</p>
+                    <p className="text-[11px] text-zinc-450 mt-1 font-sans">{eng.name}</p>
                     
-                    <div className="mt-4 space-y-2">
-                      <div className="flex justify-between text-xs font-semibold">
-                        <span className="text-zinc-400">Health Index</span>
-                        <span className="text-zinc-200">{(eng.health * 100).toFixed(0)}%</span>
+                    <div className="mt-4 space-y-1.5">
+                      <div className="flex justify-between text-[10px] font-mono">
+                        <span className="text-zinc-500">HEALTH INDEX</span>
+                        <span className="text-zinc-300">{(eng.health * 100).toFixed(0)}%</span>
                       </div>
-                      <div className="h-1.5 w-full bg-zinc-800 rounded-full overflow-hidden">
+                      <div className="h-1 w-full bg-zinc-900/40 rounded-full overflow-hidden">
                         <div 
-                          className={`h-full rounded-full transition-all duration-500 ${getHealthBarColor(eng.health)}`}
+                          className={`h-full transition-all duration-500 ${getHealthBarColor(eng.health)}`}
                           style={{ width: `${eng.health * 100}%` }}
                         />
                       </div>
                     </div>
 
-                    <div className="mt-4 flex items-center justify-between border-t border-zinc-800/80 pt-3 text-xs text-zinc-400">
-                      <span>Inference Cycle: <strong className="text-zinc-200">{eng.cycle}</strong></span>
-                      <span>RUL: <strong className="text-indigo-400">{eng.rul} cycles</strong></span>
+                    <div className="mt-4 flex items-center justify-between border-t border-zinc-900/80 pt-3 text-[10px] font-mono text-zinc-550">
+                      <span>CYCLES: <strong className="text-zinc-350">{eng.cycle}</strong></span>
+                      <span>RUL: <strong className="text-zinc-350">{eng.rul} CYC</strong></span>
                     </div>
                   </div>
                 ))}
@@ -595,80 +753,81 @@ export default function Dashboard() {
             </div>
 
             {/* Right: Deep Dive Analytics and Live Streaming */}
-            <div className="lg:col-span-2 space-y-6">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 space-y-4">
+            <div className="lg:col-span-2 space-y-6 font-sans">
+              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-5">
                 
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-extrabold text-zinc-100">
-                      Telemetry Stream & RUL Regression Plot
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                      Live Telemetry & Predictor Plot
+                    </span>
+                    <h2 className="text-lg font-bold text-zinc-200 uppercase">
+                      Prognostics Analysis: {activeEngine.id}
                     </h2>
-                    <p className="text-xs text-zinc-400 mt-1">
-                      Monitoring real-time predictions for <strong className="text-indigo-400">{activeEngine.id}</strong> ({activeEngine.name})
-                    </p>
                   </div>
                   
                   <button
                     onClick={() => streamNextCycle(activeEngine.id)}
                     disabled={isInferring || !backendOnline}
-                    className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 px-5 rounded-lg text-sm transition-all shadow-md shadow-indigo-600/35 active:scale-95"
+                    className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2 px-4 rounded-md text-xs tracking-wider transition-all active:scale-95 cursor-pointer"
                   >
-                    <RefreshCw className={`h-4 w-4 ${isInferring ? "animate-spin" : ""}`} />
-                    <span>{isInferring ? "Evaluating Edge AI..." : "Stream Next Cycle"}</span>
+                    <RefreshCw className={`h-3 w-3 ${isInferring ? "animate-spin" : ""}`} />
+                    <span>{isInferring ? "EVALUATING MODEL..." : "SIMULATE FLIGHT CYCLE"}</span>
                   </button>
                 </div>
 
                 {/* Status Banners */}
                 {activeEngine.rul < 30 && (
-                  <div className="flex items-center space-x-3 bg-red-500/10 border border-red-500/30 text-red-400 p-3 rounded-lg text-sm animate-pulse">
-                    <AlertTriangle className="h-5 w-5 shrink-0" />
+                  <div className="flex items-center space-x-3 bg-red-950/20 border border-red-900/20 text-red-400 p-3.5 rounded-lg text-xs font-mono">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
                     <div>
-                      <strong>CRITICAL COMPONENT ANOMALY:</strong> Remaining Useful Life (RUL) has dropped below 30 operational cycles. Safe threshold breached. Maintenance recommended immediately. Anomaly flag has triggered.
+                      <strong>WARNING: CRITICAL LIFETIME LIMIT REACHED.</strong> Remaining Useful Life (RUL) has dropped below safe threshold (30 cycles). Immediate overhaul required.
                     </div>
                   </div>
                 )}
 
                 {/* Recharts Container */}
-                <div className="h-72 w-full mt-4 bg-zinc-950/40 p-2 border border-zinc-800/60 rounded-xl">
+                <div className="h-72 w-full mt-4 bg-zinc-950/30 p-2 border border-zinc-900/60 rounded-xl">
                   {mounted && (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={activeEngine.history}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="cycle" stroke="#71717a" fontSize={11} label={{ value: 'Operational Cycles', position: 'insideBottomRight', offset: -5, fill: '#71717a' }} />
-                        <YAxis yAxisId="left" stroke="#818cf8" fontSize={11} label={{ value: 'RUL (Cycles)', angle: -90, position: 'insideLeft', fill: '#818cf8' }} />
-                        <YAxis yAxisId="right" orientation="right" stroke="#fbbf24" fontSize={11} label={{ value: 'Sensor Signals', angle: 90, position: 'insideRight', fill: '#fbbf24' }} />
-                        <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a", color: "#f4f4f5" }} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
+                        <XAxis dataKey="cycle" stroke="#52525b" fontSize={10} fontFamily="monospace" label={{ value: 'Flight Cycles', position: 'insideBottomRight', offset: -5, fill: '#52525b', fontSize: 10 }} />
+                        <YAxis yAxisId="left" stroke="#a1a1aa" fontSize={10} fontFamily="monospace" label={{ value: 'Remaining Cycles', angle: -90, position: 'insideLeft', fill: '#a1a1aa', fontSize: 10 }} />
+                        <YAxis yAxisId="right" orientation="right" stroke="#71717a" fontSize={10} fontFamily="monospace" label={{ value: 'Telemetry Voltages', angle: 90, position: 'insideRight', fill: '#71717a', fontSize: 10 }} />
+                        <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#18181b", color: "#f4f4f5", fontFamily: "monospace", fontSize: 10 }} />
+                        <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
                         
-                        <ReferenceLine yAxisId="left" y={30} stroke="#f87171" strokeDasharray="5 5" label={{ value: 'RUL Hazard limit (30)', fill: '#f87171', fontSize: 10, position: 'insideTopLeft' }} />
+                        <ReferenceLine yAxisId="left" y={30} stroke="#ef4444" strokeDasharray="4 4" label={{ value: 'Limit: 30', fill: '#ef4444', fontSize: 9, position: 'insideTopLeft' }} />
                         
-                        <Line yAxisId="left" type="monotone" dataKey="rul" name="Predicted RUL" stroke="#818cf8" strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 6 }} />
-                        <Line yAxisId="right" type="monotone" dataKey="sensor_11" name="Core Speed Temp" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
-                        <Line yAxisId="right" type="monotone" dataKey="sensor_12" name="Bypass Ratio" stroke="#10b981" strokeWidth={1.5} dot={false} />
+                        <Line yAxisId="left" type="monotone" dataKey="rul" name="Predicted RUL" stroke="#f4f4f5" strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} />
+                        <Line yAxisId="right" type="monotone" dataKey="sensor_11" name="Sensor LPC Temp" stroke="#71717a" strokeWidth={1} dot={false} />
+                        <Line yAxisId="right" type="monotone" dataKey="sensor_12" name="Sensor Bypass Ratio" stroke="#3f3f46" strokeWidth={1} strokeDasharray="3 3" dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-xs bg-zinc-950/50 p-4 border border-zinc-800 rounded-lg">
+                {/* Telemetry metrics panel */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 text-xs bg-zinc-950/40 p-4 border border-zinc-900 rounded-lg font-mono">
                   <div className="space-y-1">
-                    <span className="text-zinc-500 font-semibold uppercase block">Current Cycle</span>
-                    <strong className="text-zinc-200 text-lg">{activeEngine.cycle}</strong>
+                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Active Cycle</span>
+                    <strong className="text-zinc-200 text-base">{activeEngine.cycle}</strong>
                   </div>
                   <div className="space-y-1">
-                    <span className="text-zinc-500 font-semibold uppercase block">Predicted RUL</span>
-                    <strong className="text-indigo-400 text-lg">{activeEngine.rul} Cycles</strong>
+                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Estimated RUL</span>
+                    <strong className="text-zinc-200 text-base">{activeEngine.rul} Cycles</strong>
                   </div>
                   <div className="space-y-1">
-                    <span className="text-zinc-500 font-semibold uppercase block">Bypass Ratio</span>
-                    <strong className="text-emerald-400 text-lg">
+                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Sensor Bypass Ratio</span>
+                    <strong className="text-zinc-300 text-base">
                       {activeEngine.history[activeEngine.history.length - 1].sensor_12.toFixed(3)}
                     </strong>
                   </div>
                   <div className="space-y-1">
-                    <span className="text-zinc-500 font-semibold uppercase block">Core Speed Temp</span>
-                    <strong className="text-amber-400 text-lg">
-                      {activeEngine.history[activeEngine.history.length - 1].sensor_11.toFixed(1)} RPM
+                    <span className="text-zinc-500 uppercase block text-[9px] tracking-widest">Sensor LPC Temp</span>
+                    <strong className="text-zinc-300 text-base">
+                      {activeEngine.history[activeEngine.history.length - 1].sensor_11.toFixed(1)} K
                     </strong>
                   </div>
                 </div>
@@ -679,58 +838,57 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* TAB 2: FEDERATED MONITOR ROOM */}
+        {/* TAB 2: FEDERATED CALIBRATION CONSOLE */}
         {activeTab === "federated" && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 space-y-6">
+          <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-6">
             
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-800 pb-5">
-              <div>
-                <h2 className="text-2xl font-extrabold text-zinc-100 flex items-center space-x-2">
-                  <Layers className="h-6 w-6 text-indigo-400" />
-                  <span>Heterogeneous Federated Learning Simulation</span>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-900 pb-5">
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                  Secure Parameters Compilation
+                </span>
+                <h2 className="text-xl font-bold text-zinc-100 uppercase flex items-center space-x-2">
+                  <span>Distributed Fleet Prognostics Calibrator</span>
                 </h2>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Federation round updates global TCN weights across non-IID stations via FedProx (Tunable μ=0.01) + Local Differential Privacy (σ=0.001)
-                </p>
               </div>
 
               <button
                 onClick={runFederatedRound}
                 disabled={isFederating || !backendOnline}
-                className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 px-5 rounded-lg text-sm transition-all shadow-md shadow-indigo-600/35 active:scale-95"
+                className="flex items-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2 px-4 rounded-md text-xs tracking-wider transition-all active:scale-95 cursor-pointer"
               >
-                <Play className={`h-4 w-4 ${isFederating ? "animate-spin" : ""}`} />
-                <span>{isFederating ? "Running FedProx Optimizers..." : "Run Federated Round"}</span>
+                <Play className={`h-3 w-3 ${isFederating ? "animate-spin" : ""}`} />
+                <span>{isFederating ? "SYNCHRONIZING..." : "SYNCHRONIZE FLEET MODELS"}</span>
               </button>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 font-sans">
               
-              {/* Station Parameters description */}
+              {/* Hangar groups info */}
               <div className="lg:col-span-1 space-y-4">
-                <h3 className="font-bold text-zinc-200 border-b border-zinc-800 pb-2">Federation Topology</h3>
+                <h3 className="font-mono text-xs uppercase tracking-widest text-zinc-400 border-b border-zinc-900 pb-2">Hangar Station Nodes</h3>
                 
                 <div className="space-y-4 text-xs">
-                  <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-lg">
-                    <strong className="text-indigo-300">Station 1: Early-Stage Nodes (Nominal)</strong>
-                    <p className="text-zinc-400 mt-1">Telemetry contains primarily nominal startup cycles (Cycles ≤ 60). Low structural fatigue conditions.</p>
+                  <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded-md">
+                    <strong className="text-zinc-300 font-mono text-[11px] block">Hangar Group A (Nominal Operations)</strong>
+                    <p className="text-zinc-500 mt-1 font-sans leading-relaxed text-[11px]">Telemetry logs capturing standard operating cycles (Cycles ≤ 60).</p>
                   </div>
                   
-                  <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-lg">
-                    <strong className="text-indigo-300">Station 2: Stress-State Nodes (Rapid Degradation)</strong>
-                    <p className="text-zinc-400 mt-1">Telemetry contains engines in active wear states (Cycles &gt; 100). Focus on failure thresholds.</p>
+                  <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded-md">
+                    <strong className="text-zinc-300 font-mono text-[11px] block">Hangar Group B (Stress Diagnostics)</strong>
+                    <p className="text-zinc-500 mt-1 font-sans leading-relaxed text-[11px]">Telemetry logs detailing advanced wear fatigue and engine cycles near limit thresholds.</p>
                   </div>
 
-                  <div className="p-3 bg-zinc-950/60 border border-zinc-800 rounded-lg">
-                    <strong className="text-indigo-300">Station 3: Mixed Environment Nodes</strong>
-                    <p className="text-zinc-400 mt-1">Telemetry contains mixed cycles (Cycles 60 to 100). General operational profiles.</p>
+                  <div className="p-3 bg-zinc-950/20 border border-zinc-900 rounded-md">
+                    <strong className="text-zinc-300 font-mono text-[11px] block">Hangar Group C (Mixed Operations)</strong>
+                    <p className="text-zinc-500 mt-1 font-sans leading-relaxed text-[11px]">Telemetry logs representing standard balanced fleet configurations.</p>
                   </div>
                   
-                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/80 rounded-lg space-y-2">
-                    <strong className="text-zinc-300 flex items-center"><Terminal className="h-3 w-3 text-indigo-400 mr-2" /> Math Directives</strong>
-                    <div className="text-[10px] font-mono text-indigo-300 space-y-1">
-                      <div>Loss penalty: L_local(w) + 0.005*||w - w^t||^2</div>
-                      <div>Privacy: w_priv = w_local + N(0, 1e-6)</div>
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-900 rounded-md space-y-2">
+                    <strong className="text-zinc-400 flex items-center font-mono text-[10px] uppercase tracking-wider"><Terminal className="h-3 w-3 text-zinc-500 mr-2" /> Calibration settings</strong>
+                    <div className="text-[10px] font-mono text-zinc-500 space-y-1">
+                      <div>AGGREGATION: FedProx (mu=0.01)</div>
+                      <div>PRIVACY: Laplace Local DP (sigma=0.001)</div>
                     </div>
                   </div>
                 </div>
@@ -738,26 +896,26 @@ export default function Dashboard() {
 
               {/* Training Convergence Plot */}
               <div className="lg:col-span-2 space-y-4">
-                <h3 className="font-bold text-zinc-200">Global Training Convergence (MSE Loss)</h3>
+                <h3 className="font-mono text-xs uppercase tracking-widest text-zinc-400">Parameter Convergence History</h3>
                 
-                <div className="h-72 w-full bg-zinc-950/40 p-2 border border-zinc-800 rounded-xl">
+                <div className="h-72 w-full bg-zinc-950/30 p-2 border border-zinc-900 rounded-xl">
                   {mounted && federatedHistory.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={federatedHistory}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                        <XAxis dataKey="round" stroke="#71717a" label={{ value: 'Federated Rounds', position: 'insideBottomRight', offset: -5, fill: '#71717a' }} />
-                        <YAxis stroke="#71717a" label={{ value: 'MSE Loss', angle: -90, position: 'insideLeft', fill: '#71717a' }} />
-                        <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#27272a" }} />
-                        <Legend />
-                        <Line type="monotone" dataKey="station_1_loss" name="Station 1 Loss" stroke="#3b82f6" strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="station_2_loss" name="Station 2 Loss" stroke="#ef4444" strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="station_3_loss" name="Station 3 Loss" stroke="#f59e0b" strokeWidth={1.5} />
-                        <Line type="monotone" dataKey="global_loss" name="Global Valid Loss" stroke="#818cf8" strokeWidth={3} dot={{ r: 4 }} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#18181b" />
+                        <XAxis dataKey="round" stroke="#52525b" fontSize={10} fontFamily="monospace" label={{ value: 'Synchronization Rounds', position: 'insideBottomRight', offset: -5, fill: '#52525b', fontSize: 10 }} />
+                        <YAxis stroke="#52525b" fontSize={10} fontFamily="monospace" label={{ value: 'Mean Squared Error', angle: -90, position: 'insideLeft', fill: '#52525b', fontSize: 10 }} />
+                        <Tooltip contentStyle={{ backgroundColor: "#09090b", borderColor: "#18181b", color: "#f4f4f5", fontFamily: "monospace", fontSize: 10 }} />
+                        <Legend wrapperStyle={{ fontSize: 10, fontFamily: "monospace" }} />
+                        <Line type="monotone" dataKey="station_1_loss" name="Group A Loss" stroke="#52525b" strokeWidth={1} dot={false} />
+                        <Line type="monotone" dataKey="station_2_loss" name="Group B Loss" stroke="#71717a" strokeWidth={1} dot={false} />
+                        <Line type="monotone" dataKey="station_3_loss" name="Group C Loss" stroke="#a1a1aa" strokeWidth={1.5} dot={false} />
+                        <Line type="monotone" dataKey="global_loss" name="Consolidated Fleet Loss" stroke="#f4f4f5" strokeWidth={2.5} dot={{ r: 3 }} />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="h-full w-full flex items-center justify-center text-zinc-500 text-sm">
-                      No federated rounds recorded yet. Click 'Run Federated Round' to begin local training simulation.
+                    <div className="h-full w-full flex items-center justify-center font-mono text-zinc-550 text-xs">
+                      No synchronization logs found. Trigger model synchronization to compute global convergence metrics.
                     </div>
                   )}
                 </div>
@@ -776,156 +934,154 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               
               {/* MMR Verification Console */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 space-y-4">
-                <h3 className="text-lg font-bold text-zinc-200 flex items-center space-x-2">
-                  <Shield className="h-5 w-5 text-indigo-400" />
-                  <span>Cryptographic Auditing Terminal</span>
+              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
+                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                  <Shield className="h-4 w-4 text-zinc-500" />
+                  <span>Ledger Verification Console</span>
                 </h3>
-                <p className="text-xs text-zinc-400">
-                  Verify the append-only Merkle Mountain Range (MMR) ledger. Tamper-evident architecture detects any database payload modifications instantly.
+                <p className="text-[11px] text-zinc-450 leading-relaxed font-sans">
+                  Validates the structural integrity of the append-only maintenance ledger. Rebuilds the Merkle Mountain Range (MMR) directly from current records and compares the computed root against the stored seal.
                 </p>
 
-                <div className="flex space-x-3 mt-4">
+                <div className="flex space-x-3 pt-2">
                   <button
                     onClick={verifyLedgerIntegrity}
                     disabled={isVerifying || !backendOnline}
-                    className="flex-1 flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-lg text-sm transition-all shadow-md shadow-emerald-600/35"
+                    className="flex-1 flex items-center justify-center space-x-2 bg-zinc-800 hover:bg-zinc-750 disabled:opacity-50 text-zinc-200 border border-zinc-700 font-mono font-bold py-2.5 px-4 rounded-md text-xs transition-all cursor-pointer"
                   >
-                    <CheckCircle className="h-4 w-4" />
-                    <span>Verify Ecosystem Integrity</span>
+                    <CheckCircle className="h-3.5 w-3.5 text-zinc-400" />
+                    <span>RUN INTEGRITY VALIDATION</span>
                   </button>
 
                   <button
                     onClick={simulateTampering}
                     disabled={!backendOnline}
-                    className="flex-1 flex items-center justify-center space-x-2 bg-red-950/60 hover:bg-red-950 border border-red-500/30 text-red-400 font-bold py-2.5 px-4 rounded-lg text-sm transition-all"
+                    className="flex-1 flex items-center justify-center space-x-2 bg-red-950/10 hover:bg-red-950/20 border border-red-900/25 text-red-400 font-mono font-bold py-2.5 px-4 rounded-md text-xs transition-all cursor-pointer"
                   >
-                    <AlertTriangle className="h-4 w-4 animate-pulse" />
-                    <span>Simulate DB Injection</span>
+                    <AlertTriangle className="h-3.5 w-3.5 text-red-500" />
+                    <span>SIMULATE DATA TAMPER</span>
                   </button>
                 </div>
 
                 {/* Verification result display */}
                 {verificationResult.verified !== null && (
-                  <div className={`p-4 rounded-xl border space-y-2 ${
+                  <div className={`p-4 rounded-md border space-y-3 font-mono text-xs ${
                     verificationResult.verified 
-                      ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
-                      : "bg-red-500/10 border-red-500/30 text-red-400"
+                      ? "bg-emerald-500/5 border-emerald-500/20 text-emerald-400" 
+                      : "bg-red-500/5 border-red-500/20 text-red-400"
                   }`}>
-                    <div className="flex items-center space-x-2 font-bold text-sm">
+                    <div className="flex items-center space-x-2 font-bold uppercase tracking-wider text-[11px]">
                       {verificationResult.verified ? (
                         <>
-                          <CheckCircle className="h-5 w-5" />
-                          <span>INTEGRITY SECURE: ROOT SEAL INTACT</span>
+                          <CheckCircle className="h-4 w-4 text-emerald-500" />
+                          <span>Verification Secure: Root Integrity Intact</span>
                         </>
                       ) : (
                         <>
-                          <AlertTriangle className="h-5 w-5 text-red-400 animate-bounce" />
-                          <span>INTEGRITY COMPROMISED: CRITICAL ERROR</span>
+                          <AlertTriangle className="h-4 w-4 text-red-500" />
+                          <span>Verification Failure: Hash Mismatch Detected</span>
                         </>
                       )}
                     </div>
-                    <p className="text-xs text-zinc-300">{verificationResult.message}</p>
+                    <p className="text-[11px] text-zinc-350">{verificationResult.message}</p>
                     
-                    <div className="text-[10px] font-mono border-t border-zinc-800/80 pt-2 space-y-1 text-zinc-400">
+                    <div className="text-[10px] border-t border-zinc-900/80 pt-2.5 space-y-1.5 text-zinc-500">
                       <div className="truncate">COMPUTED ROOT: {verificationResult.computed_root || "N/A"}</div>
                       <div className="truncate">DATABASE ROOT: {verificationResult.stored_root || "N/A"}</div>
                     </div>
                   </div>
                 )}
 
-                <div className="text-xs space-y-1.5 border border-zinc-800 bg-zinc-950/50 p-4 rounded-lg">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">MMR ROOT HASH:</span>
-                    <span className="font-mono text-[10px] text-indigo-400 select-all truncate max-w-xs">{rootHash || "Empty Ledger"}</span>
-                  </div>
+                <div className="text-[10px] font-mono border border-zinc-900 bg-zinc-950/40 p-4 rounded-md flex justify-between">
+                  <span className="text-zinc-500">MMR ROOT SEAL:</span>
+                  <span className="text-zinc-350 select-all truncate max-w-xs">{rootHash || "EMPTY REGISTER"}</span>
                 </div>
 
               </div>
 
               {/* Add maintenance log */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 space-y-4">
-                <h3 className="text-lg font-bold text-zinc-200 flex items-center space-x-2">
-                  <Database className="h-5 w-5 text-indigo-400" />
-                  <span>Manual Ledger Record Entry (Client-Signed Payload)</span>
+              <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4">
+                <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                  <Database className="h-4 w-4 text-zinc-500" />
+                  <span>Create Certified Maintenance Entry</span>
                 </h3>
                 
-                <form onSubmit={handleManualAppend} className="grid grid-cols-2 gap-4 text-xs">
+                <form onSubmit={handleManualAppend} className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[11px] font-mono">
                   <div className="space-y-1.5">
-                    <label className="text-zinc-400 font-semibold block">Component ID</label>
+                    <label className="text-zinc-500 uppercase block text-[10px]">Component ID</label>
                     <select
                       value={formEngine}
                       onChange={(e) => setFormEngine(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-850 p-2 rounded-lg text-zinc-200 focus:border-indigo-500 outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none cursor-pointer"
                     >
-                      <option value="ENG-001">ENG-001 (Alpha)</option>
-                      <option value="ENG-002">ENG-002 (Bravo)</option>
-                      <option value="ENG-003">ENG-003 (Charlie)</option>
+                      <option value="ENG-001" className="bg-zinc-900 text-zinc-200">ENG-001 (Alpha)</option>
+                      <option value="ENG-002" className="bg-zinc-900 text-zinc-200">ENG-002 (Bravo)</option>
+                      <option value="ENG-003" className="bg-zinc-900 text-zinc-200">ENG-003 (Charlie)</option>
                     </select>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-zinc-400 font-semibold block">Inspection Station ID</label>
+                    <label className="text-zinc-500 uppercase block text-[10px]">Hangar Station</label>
                     <select
                       value={formStation}
                       onChange={(e) => setFormStation(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-850 p-2 rounded-lg text-zinc-200 focus:border-indigo-500 outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none cursor-pointer"
                     >
-                      <option value="STATION_001">STATION_001 (Early stage)</option>
-                      <option value="STATION_002">STATION_002 (Stress node)</option>
-                      <option value="STATION_003">STATION_003 (Mixed node)</option>
+                      <option value="STATION_001" className="bg-zinc-900 text-zinc-200">STATION_001 (Group A)</option>
+                      <option value="STATION_002" className="bg-zinc-900 text-zinc-200">STATION_002 (Group B)</option>
+                      <option value="STATION_003" className="bg-zinc-900 text-zinc-200">STATION_003 (Group C)</option>
                     </select>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-zinc-400 font-semibold block">Action Taken</label>
+                    <label className="text-zinc-500 uppercase block text-[10px]">Log Action</label>
                     <select
                       value={formAction}
                       onChange={(e) => setFormAction(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-850 p-2 rounded-lg text-zinc-200 focus:border-indigo-500 outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none cursor-pointer"
                     >
-                      <option value="Sensor Calibration">Sensor Calibration</option>
-                      <option value="Blade Replacement">Blade Replacement</option>
-                      <option value="Oil Lubrication Refill">Oil Lubrication Refill</option>
-                      <option value="Compressor Overhaul">Compressor Overhaul</option>
+                      <option value="Sensor Calibration" className="bg-zinc-900 text-zinc-200">Sensor Calibration</option>
+                      <option value="Blade Replacement" className="bg-zinc-900 text-zinc-200">Blade Replacement</option>
+                      <option value="Oil Lubrication Refill" className="bg-zinc-900 text-zinc-200">Oil Lubrication Refill</option>
+                      <option value="Compressor Overhaul" className="bg-zinc-900 text-zinc-200">Compressor Overhaul</option>
                     </select>
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-zinc-400 font-semibold block">Technician ID</label>
+                    <label className="text-zinc-500 uppercase block text-[10px]">Technician ID</label>
                     <input
                       type="text"
                       value={formTech}
                       onChange={(e) => setFormTech(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-850 p-2 rounded-lg text-zinc-200 focus:border-indigo-500 outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none"
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-zinc-400 font-semibold block">Health Snapshot (0.0 - 1.0)</label>
+                    <label className="text-zinc-500 uppercase block text-[10px]">Health Snapshot</label>
                     <input
                       type="number"
                       step="0.01"
                       value={formHealth}
                       onChange={(e) => setFormHealth(e.target.value)}
-                      className="w-full bg-zinc-950 border border-zinc-850 p-2 rounded-lg text-zinc-200 focus:border-indigo-500 outline-none"
+                      className="w-full bg-zinc-900 border border-zinc-800 p-2 rounded-md text-zinc-200 focus:border-zinc-700 outline-none"
                     />
                   </div>
 
-                  <div className="col-span-2 pt-2">
+                  <div className="col-span-1 sm:col-span-2 pt-2">
                     <button
                       type="submit"
                       disabled={!backendOnline}
-                      className="w-full flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold py-2.5 px-4 rounded-lg transition-all"
+                      className="w-full flex items-center justify-center space-x-2 bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 font-mono font-bold py-2.5 px-4 rounded-md transition-all active:scale-[0.99] cursor-pointer"
                     >
-                      <Layers className="h-4 w-4" />
-                      <span>Sign (Ed25519) & Append to MMR</span>
+                      <Layers className="h-3.5 w-3.5" />
+                      <span>SIGN & COMMIT LOG ENTRY</span>
                     </button>
                   </div>
                 </form>
 
                 {formSuccessMessage && (
-                  <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 rounded-lg text-xs font-semibold">
+                  <div className="p-3 bg-zinc-950 border border-zinc-900 text-zinc-400 rounded-md text-[10px] font-mono">
                     {formSuccessMessage}
                   </div>
                 )}
@@ -935,45 +1091,47 @@ export default function Dashboard() {
             </div>
 
             {/* Audit log table */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 md:p-6 space-y-4">
-              <h3 className="text-lg font-bold text-zinc-200 flex items-center space-x-2">
-                <Database className="h-5 w-5 text-indigo-400" />
-                <span>Immutable Maintenance Ledger Database</span>
+            <div className="bg-zinc-900/10 border border-zinc-900 rounded-xl p-5 md:p-6 space-y-4 col-span-1 md:col-span-2">
+              <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-400 flex items-center space-x-2">
+                <Database className="h-4 w-4 text-zinc-500" />
+                <span>Immutable Maintenance Registry Logs</span>
               </h3>
               
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-xs text-left">
+              <div className="overflow-x-auto no-scrollbar">
+                <table className="w-full border-collapse text-[11px] text-left font-mono">
                   <thead>
-                    <tr className="border-b border-zinc-800 text-zinc-500 font-semibold uppercase">
-                      <th className="pb-3 pr-4">Leaf Index</th>
+                    <tr className="border-b border-zinc-900 text-zinc-550 font-semibold uppercase text-[10px] tracking-wider">
+                      <th className="pb-3 pr-4">Leaf ID</th>
                       <th className="pb-3 px-4">Timestamp</th>
-                      <th className="pb-3 px-4">Component ID</th>
+                      <th className="pb-3 px-4">Component</th>
                       <th className="pb-3 px-4">Action Taken</th>
-                      <th className="pb-3 px-4">Technician ID</th>
-                      <th className="pb-3 px-4">Health Snapshot</th>
-                      <th className="pb-3 pl-4">Node Hash</th>
+                      <th className="pb-3 px-4">Technician</th>
+                      <th className="pb-3 px-4">Health</th>
+                      <th className="pb-3 pl-4">Cryptographic Hash</th>
                     </tr>
                   </thead>
                   <tbody>
                     {ledgerHistory.length > 0 ? (
                       ledgerHistory.map((row) => (
-                        <tr key={row.leaf_index} className="border-b border-zinc-850 hover:bg-zinc-950/20 text-zinc-300">
-                          <td className="py-3.5 pr-4 font-bold text-indigo-400">#{row.leaf_index}</td>
-                          <td className="py-3.5 px-4 font-mono text-[10px] text-zinc-400">
-                            {new Date(row.timestamp).toLocaleTimeString()}<br/>
-                            {new Date(row.timestamp).toLocaleDateString()}
+                        <tr key={row.leaf_index} className="border-b border-zinc-900/60 hover:bg-zinc-900/5 text-zinc-350">
+                          <td className="py-3.5 pr-4 font-bold text-zinc-300">#{String(row.leaf_index).padStart(3, '0')}</td>
+                          <td className="py-3.5 px-4 text-zinc-500 text-[10px]">
+                            {mounted ? new Date(row.timestamp).toLocaleTimeString() : ""}<br/>
+                            {mounted ? new Date(row.timestamp).toLocaleDateString() : ""}
                           </td>
-                          <td className="py-3.5 px-4 font-bold text-zinc-200">{row.component_id}</td>
+                          <td className="py-3.5 px-4 font-bold text-zinc-300">{row.component_id}</td>
                           <td className="py-3.5 px-4">{row.action_taken}</td>
-                          <td className="py-3.5 px-4 text-zinc-400 flex items-center"><User className="h-3.5 w-3.5 text-zinc-500 mr-1.5" />{row.technician_id}</td>
-                          <td className="py-3.5 px-4 font-mono font-semibold">{(row.health_snapshot * 100).toFixed(0)}%</td>
-                          <td className="py-3.5 pl-4 font-mono text-[9px] text-indigo-500/80 select-all truncate max-w-xs">{row.node_hash}</td>
+                          <td className="py-3.5 px-4 text-zinc-450">{row.technician_id}</td>
+                          <td className="py-3.5 px-4 font-semibold text-zinc-300">{(row.health_snapshot * 100).toFixed(0)}%</td>
+                          <td className="py-3.5 pl-4 text-zinc-500 text-[9.5px] select-all font-mono" title={row.node_hash}>
+                            {row.node_hash ? `${row.node_hash.substring(0, 10)}...${row.node_hash.substring(row.node_hash.length - 10)}` : "N/A"}
+                          </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={7} className="py-8 text-center text-zinc-500">
-                          No maintenance logs found in the ledger database. Stream engine metrics or manually submit a signed log entry.
+                        <td colSpan={7} className="py-8 text-center text-zinc-550 font-mono">
+                          NO ENTRIES COMMITTED. SIMULATE TELEMETRY DIAGNOSTICS TO TRIGGER SYSTEM LOGS.
                         </td>
                       </tr>
                     )}

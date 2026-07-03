@@ -3,7 +3,7 @@ import requests
 import json
 import numpy as np
 
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "http://127.0.0.1:8000"
 
 def run_verification():
     print("=" * 80)
@@ -148,7 +148,7 @@ def run_verification():
         print("  --> [PASSED] Cryptographic seal broken! Mismatch detected:")
         print(f"      Computed Root: {after['computed_root']}")
         print(f"      Database Root: {after['stored_root']}")
-        print(f"      Corrupted Leaf Indices Identified: {after['tamper_indices']}")
+        print(f"      Corrupted Leaf Indices Identified: {after['tampered_indices']}")
     else:
         print("  --> [FAILED] System failed to identify database tampering.")
 
